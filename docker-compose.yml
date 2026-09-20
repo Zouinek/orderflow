@@ -1,0 +1,34 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: mysql-db
+    environment:
+      MYSQL_DATABASE: orderflow      # created on first start
+      MYSQL_USER: orderflow
+      MYSQL_PASSWORD: orderflow
+      MYSQL_ROOT_PASSWORD: rootpass
+    ports:
+      - "3306:3306"                  # exposed so you can also poke it with a DB client
+    volumes:
+      - mysql-data:/var/lib/mysql    # data survives `docker compose down`
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+  app:
+    build: .
+    container_name: springboot-test
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: mysql               # service name = hostname on the compose network
+    depends_on:
+      mysql:
+        condition: service_healthy   # don't start the API until MySQL answers ping
+
+
+volumes:
+  mysql-data:

@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orderflow-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: orderflow-api
+  template:
+    metadata:
+      labels:
+        app: orderflow-api
+    spec:
+      containers:
+        - name: orderflow-api
+          image: orderflow-api:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: orderflow-config
+            - secretRef:
+                name: orderflow-secret

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orderflow-config
+data:
+  DB_NAME: orderflow
+  DB_HOST: mysql
+  DB_PORT: "3306"
+
+
