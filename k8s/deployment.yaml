@@ -4,6 +4,7 @@ metadata:
   name: orderflow-api
 spec:
   replicas: 2
+  minReadySeconds: 35
   selector:
     matchLabels:
       app: orderflow-api
@@ -23,3 +24,17 @@ spec:
                 name: orderflow-config
             - secretRef:
                 name: orderflow-secret
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold:  3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 1
+            periodSeconds: 10
+            failureThreshold: 3

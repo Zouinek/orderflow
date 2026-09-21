@@ -1,0 +1,28 @@
+#!/bin/sh
+# Every commit must update docs/war-stories.md, except:
+#   - docs/chore/style/ci/build commits (Conventional Commit type)
+#   - commits whose message contains [no-story]
+# Enable once per clone:  git config core.hooksPath .githooks
+
+msg_file="$1"
+first_line=$(head -n 1 "$msg_file")
+
+case "$first_line" in
+  docs*|chore*|style*|ci*|build*|Merge*|Revert*) exit 0 ;;
+esac
+
+if grep -q '\[no-story\]' "$msg_file"; then
+  exit 0
+fi
+
+if git diff --cached --name-only | grep -qx 'docs/war-stories.md'; then
+  exit 0
+fi
+
+echo ""
+echo "  ⚔️  No war story staged."
+echo "  This commit doesn't touch docs/war-stories.md."
+echo "  Add or update an entry, then: git add docs/war-stories.md"
+echo "  (Nothing worth a story? Add [no-story] to the commit message.)"
+echo ""
+exit 1
