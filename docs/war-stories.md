@@ -44,6 +44,7 @@ pods held 0 restarts.
 - CrashLoopBackOff waits longer after each crash (10s → 20s → 40s … 5 min).
 - Rolling back to an identical pod template reuses the old ReplicaSet (same hash), which is also how `kubectl rollout undo` works.
 - A JVM stopped with SIGTERM exits with code 143, which `kubectl get pods` shows as `Error`. It's harmless here; graceful shutdown comes later.
+- Readiness `periodSeconds` bounds time-to-Ready: a check that fails at 1s waits a full period for the next one. Tuned readiness from 10s × 3 to 3s × 10 (same 30s "leave traffic" window), and time-to-Ready dropped from 11s to 8–10s. Because `minReadySeconds` counts from Ready, I had to recheck it and raised it to 39 (Ready ~10s + 39 = 49s > liveness kill ~40s).
 **Concept:** a health check that's wrong is worse than none, because it turns a healthy system into an outage.
 "Ready once" is not the same as "healthy": a deploy gate has to observe a pod long enough to catch failures that show up later.
 

@@ -4,7 +4,7 @@ metadata:
   name: orderflow-api
 spec:
   replicas: 2
-  minReadySeconds: 35
+  minReadySeconds: 39
   selector:
     matchLabels:
       app: orderflow-api
@@ -36,5 +36,5 @@ spec:
               path: /actuator/health/readiness
               port: 8080
             initialDelaySeconds: 1
-            periodSeconds: 10
-            failureThreshold: 3
+            periodSeconds: 3
+            failureThreshold: 10
