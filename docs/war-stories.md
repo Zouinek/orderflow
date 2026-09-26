@@ -19,6 +19,52 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #5 — The crash that nobody noticed (2026-09-26)
+**Commit:** `feat(k8s): add resource requests and limits`
+**Symptom:** Break-it lab: I set the memory limit to 40Mi and applied it. The new pod was OOMKilled over and over,
+but the two old pods stayed `1/1 Running` the whole time:
+
+```text
+$ kubectl get pods -w
+NAME                             READY   STATUS             RESTARTS      AGE
+orderflow-api-57bc6bb646-mfzzg   1/1     Running            0             8m22s
+orderflow-api-57bc6bb646-p8nhv   1/1     Running            0             7m15s
+orderflow-api-5d9cc7cf9b-9lvmf   0/1     Running            1 (3s ago)    5s
+orderflow-api-5d9cc7cf9b-9lvmf   0/1     OOMKilled          1 (4s ago)    6s
+orderflow-api-5d9cc7cf9b-9lvmf   0/1     CrashLoopBackOff   1 (5s ago)    10s
+orderflow-api-5d9cc7cf9b-9lvmf   0/1     Running            2 (13s ago)   18s
+orderflow-api-5d9cc7cf9b-9lvmf   0/1     OOMKilled          2 (16s ago)   21s
+orderflow-api-5d9cc7cf9b-9lvmf   0/1     CrashLoopBackOff   2 (10s ago)   30s
+```
+
+The old pods survived because of the readiness probe, which protected them from being killed:
+the rolling update created one new pod, and an old pod can only go once a new pod is Ready (+ `minReadySeconds`).
+The new pod was never Ready, so the rollout just got stuck.
+**Root cause:** A 40Mi limit, while the JVM needs about 210Mi just idle, so the kernel killed it after ~4s, before any probe ran.
+**Fix:** My first limit was 256Mi. I measured the memory usage of the JVM with
+`kubectl exec deploy/orderflow-api -- cat /sys/fs/cgroup/memory.current` and it was about 222Mi (~87% of the limit, while idle),
+so I raised it one more time to 512Mi with requests = limits. Now it's ~210Mi of 512Mi (~41%), 0 restarts.
+Healing it went back to the old ReplicaSet (`57bc6bb646`), same template = same hash.
+**Also learned:**
+- The difference between `requests` (the scheduler uses it to pick a node) and `limits` (the kernel enforces it), and
+  what happens when CPU and memory hit the limit: CPU gets throttled (slow), memory gets OOMKilled (exit 137).
+- The Java detail: once the JVM has grown its heap, it rarely gives that memory back. Anything above the request is
+  "borrowed" memory, and a JVM holds onto it. That's why a common practice for Java is memory: requests = limits.
+- This doesn't mean the QoS class is Guaranteed. For it to be Guaranteed, requests and limits must be equal for memory **and** CPU:
+
+  ```text
+  $ kubectl get pods -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass
+  NAME                             QOS
+  mysql-7b954db468-krbm2           BestEffort
+  orderflow-api-57bc6bb646-mfzzg   Burstable
+  orderflow-api-57bc6bb646-p8nhv   Burstable
+  ```
+- MySQL has no `resources:` at all, so it's BestEffort, the first pod evicted when the node runs low on memory.
+- `kubectl top` doesn't work on kind (no metrics-server); `cat /sys/fs/cgroup/memory.current` / `memory.max` does.
+- `kubectl exec deploy/...` hit an **old** pod during the rollout and showed the old 256Mi limit. Check which pod you're on.
+**Concept:** A pod that crashes before it becomes Ready is caught by the rollout, so the old pods keep serving.
+The dangerous failures are the ones that happen after Ready (like #4).
+
 ## #4 — The green rollout that took everything down (2026-09-21)
 **Commit:** `feat(k8s): add liveness/readiness probes and minReadySeconds`
 **Symptom:** Break-it lab: I pointed the liveness probe at a bogus path (`/actuator/health/nonsense`) and applied it.
