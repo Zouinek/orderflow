@@ -1,18 +1,16 @@
 services:
-  mysql:
-    image: mysql:8.4
-    container_name: mysql-db
+  postgres:
+    image: postgres:18
     environment:
-      MYSQL_DATABASE: orderflow      # created on first start
-      MYSQL_USER: orderflow
-      MYSQL_PASSWORD: orderflow
-      MYSQL_ROOT_PASSWORD: rootpass
+      POSTGRES_DB: orderflow      # created on first start
+      POSTGRES_USER: orderflow
+      POSTGRES_PASSWORD: orderflow
     ports:
-      - "3306:3306"                  # exposed so you can also poke it with a DB client
+      - "5432:5432"                  # exposed so you can also poke it with a DB client
     volumes:
-      - mysql-data:/var/lib/mysql    # data survives `docker compose down`
+      - postgres-data:/var/lib/postgresql   # data survives `docker compose down`
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      test: ["CMD", "pg_isready", "-U", "orderflow", "-d", "orderflow"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -20,15 +18,14 @@ services:
 
   app:
     build: .
-    container_name: springboot-test
     ports:
       - "8080:8080"
     environment:
-      DB_HOST: mysql               # service name = hostname on the compose network
+      DB_HOST: postgres          # service name = hostname on the compose network
     depends_on:
-      mysql:
-        condition: service_healthy   # don't start the API until MySQL answers ping
+      postgres:
+        condition: service_healthy
 
 
 volumes:
-  mysql-data:
+  postgres-data:
