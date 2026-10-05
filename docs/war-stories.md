@@ -25,6 +25,37 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #7: A bug with 0 failures (2026-10-04)
+
+**Commit:** `feat(k8s): add preStop sleep and termination grace period for graceful rollouts`
+
+**Symptom:** I expected some requests to fail during a rolling update, because the pod gets SIGTERM while the Service still sends it requests.
+I ran a curl loop from a pod inside the cluster against `http://orderflow-api/orders` while running `kubectl rollout restart`.
+Result: 18,400 requests, 0 failures. The one `000` I saw was before the rollout started, not during it.
+So the bug I was trying to fix never showed up.
+
+**Root cause:** Since 3.4, Spring Boot uses `server.shutdown=graceful` by default: on SIGTERM it stops accepting new requests and waits for in-flight requests to finish before exiting.
+The default rolling update settings (`maxSurge=1`, `maxUnavailable=0` with 2 replicas) mean that the new pod is created and Ready before the old pod is killed.
+On my single-node kind cluster, the pod was removed from the Service before the app stopped accepting requests, so no new request ever reached a closing pod.
+But on a real cluster with many nodes, every node has to update its routing (kube-proxy), and during that delay a new request can still arrive at the old pod.
+Graceful shutdown doesn't help here, because the app already stopped accepting new requests, so that request gets refused.
+
+**Fix:** Added `lifecycle.preStop.sleep.seconds: 10` to the container. The pod is removed from the Service right away, but the app only gets SIGTERM after 10 seconds, so it keeps serving while every node updates its routing.
+Raised `terminationGracePeriodSeconds` to 45, because the grace countdown starts before preStop: it has to cover the 10s sleep plus the app's own shutdown.
+
+**Verified:** The first `rollout restart` after applying showed no 10s wait, because the pods being terminated were created from the old template, which had no preStop.
+The second restart showed exactly 10 seconds between `Terminating` and `Error` (read from AGE), and the curl loop still had 0 failures.
+
+**Also learned:** The `Error` status on terminated api pods is exit code 143 = 128 + 15 (SIGTERM). The JVM always exits like this on SIGTERM, so it's cosmetic, not a bug.
+If the grace period is shorter than preStop (e.g. 5 < 10), the app never even gets SIGTERM: the pod is SIGKILLed in the middle of the sleep.
+The default `maxSurge`/`maxUnavailable` are 25%, rounded up and down: 1/0 with 2 replicas, but 1/1 with 4, so the defaults change as you scale.
+`kubectl port-forward` pins one pod and dies when that pod is terminated, so load tests during a rollout have to run from a pod inside the cluster.
+Boot now takes ~25-30s, but liveness starts at 15s, and it failed once at 20s. The margin is thin, so a startupProbe is worth revisiting.
+
+**Concept:** Removing a pod from the Service and stopping the pod happen in parallel, not in order, so the system is only eventually consistent about where traffic goes. A 0 in a small test doesn't prove the race is gone, only that the window was too small to hit.
+
+---
+
 ## #6: The Silent failure (2026-09-27)
 
 **Commit:** `refactor: migrate from MySQL to PostgreSQL with persistent storage`

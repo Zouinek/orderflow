@@ -15,6 +15,10 @@ spec:
     spec:
       containers:
         - name: orderflow-api
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 10
           image: orderflow-api:local
           imagePullPolicy: IfNotPresent
           ports:
@@ -45,3 +49,5 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+      terminationGracePeriodSeconds: 45
+
