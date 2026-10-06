@@ -28,11 +28,18 @@ spec:
                 name: orderflow-config
             - secretRef:
                 name: orderflow-secret
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 1
+            periodSeconds: 3
+            failureThreshold: 20
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
               port: 8080
-            initialDelaySeconds: 15
+            initialDelaySeconds: 0
             periodSeconds: 10
             failureThreshold:  3
           readinessProbe:

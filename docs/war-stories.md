@@ -25,6 +25,35 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #8: One NO to spare (2026-10-06)
+
+**Commit:** `fix(k8s): add startupProbe so liveness cannot kill a booting pod`
+
+**Symptom:** Nothing broke. This is a bug that hadn't happened yet.
+During the step 13 break-things lab I watched new pods start: they went from 0/1 to 1/1 after 28-31s. My liveness probe starts checking at 15s, so the app's boot time was getting close to the moment liveness would kill it.
+This had already been flagged as a thin margin in #7, and with the app growing it would only get worse, so I fixed it before it turned into a real outage.
+
+**Root cause:** The app now boots in ~28-31s, but liveness started at 15s and restarts after 3 NOs in a row, every 10s: 15 + 10 + 10 = 35s.
+During boot it got 2 NOs (at 15s and 25s) and the YES at 35s. The pod survived with one NO to spare.
+Liveness can't tell "still booting" from "frozen", both look like no answer. If boot gets ~5s slower (more code, slower machine), every new pod gets killed while booting, boots again, gets killed again: a restart loop.
+
+**Fix:** Added a `startupProbe` on `/actuator/health/liveness`: period 3s x failureThreshold 20 = ~61s boot budget (about 2x the boot time). Liveness and readiness are paused until it says YES once, then it retires. Liveness `initialDelaySeconds` went from 15 to 0, because it no longer has to guess the boot time.
+My first try was period 3 x threshold 10 (copied from readiness) = 31s, which is zero margin. A failed startupProbe restarts the container just like liveness, so it needs a real margin.
+
+**Verified:** Before the fix, `kubectl get events --field-selector reason=Unhealthy` showed a `Liveness probe failed ... connection refused` on a new pod during boot (no restart, but one NO closer). After the rollout, the new pods show `Startup probe failed ... connection refused` x8 (harmless, 8 of 20 allowed), zero `Liveness probe failed`, 0 restarts. `kubectl describe pod` lists all three probes.
+
+**Also learned (rest of the lab):**
+- Delete an api pod: the ReplicaSet creates a new one with a new name at the same second, but it is only Ready after ~32s. With 2 replicas: 0 errors. With 1 replica it would be a ~32s outage. Self-healing is not zero downtime, redundancy is.
+- Delete `postgres-0`: same name, same disk (PVC), new IP (`.7` -> `.16`). Result: 1x 500, then 18s with no answer at all, then it healed without restarting the api (Hikari threw away the dead connections). The api stayed 1/1 Ready the whole time. A failure is often a hang, not an error, and a hang is what makes users click "Pay" twice.
+- My first persistence check returned `[]` and proved nothing, because the table was already empty. Seed data first: an experiment that can't fail proves nothing.
+- `kubectl scale` to 4 starts both new pods at once (scaling is not a rollout). Scaling down kills the newest pods first. The next `kubectl apply` resets replicas to what the file says: the file is the truth.
+- Broken readiness path (`/actuator/health/nonsens`): the rollout got stuck with 1 new pod at 0/1 and the 2 old pods kept serving. No user noticed. Compare with #4, where broken liveness took everything down. The probe event said `statuscode: 404` = the app is fine, the URL is wrong.
+- Fix order at 3am: `kubectl rollout undo` to stop the bleeding, then fix the file and `apply` so git and the cluster agree. `kubectl diff -f` with no output = in sync (on Windows it needs Git's `diff.exe` on PATH).
+
+**Concept:** A health check that restarts things must be able to tell "slow" from "dead". If it can't, the cure becomes the disease: the restart loop is caused by the check itself. Give boot its own budget (startupProbe) and keep the runtime check strict.
+
+---
+
 ## #7: A bug with 0 failures (2026-10-04)
 
 **Commit:** `feat(k8s): add preStop sleep and termination grace period for graceful rollouts`
