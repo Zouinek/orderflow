@@ -15,11 +15,12 @@ until it stops failing. Every failure is reproduced on command and written up as
 
 🚧 **Phase 0: foundations.** In progress, built in public.
 
-| |                                                                                                                                                                                            |
-|---|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| ✅ Done | Order service (REST + Postgres), containerized, running on Kubernetes (kind) with externalized config, health probes, resource limit, Postgres with persistent storage (StatefulSet + PVC) |
-| 🔜 Next | rolling updates and break-things lab, then Kafka                                                                                                                                           |
-| 📋 Planned | Payment + inventory services, transactional outbox + CDC, saga with compensation, idempotent consumers, DLQs, observability, chaos testing                                                 |
+| | |
+|---|---|
+| ✅ Done | Order service (REST + Postgres), containerized, running on Kubernetes (kind) with externalized config, health probes (liveness, readiness, startup), resource limits, graceful rolling updates (preStop + grace period), Postgres with persistent storage (StatefulSet + PVC), break-things lab (4 of 5 scenarios) |
+| ✅ Done | Target architecture designed: C4 containers, saga sequence with failure paths, [decisions](docs/decisions.md) D1 to D6 |
+| 🔜 Next | Kafka: concepts, then Kafka in Docker, then the first producer and consumer |
+| 📋 Planned | Payment + inventory + notification services, transactional outbox + CDC (Debezium), saga with compensation, idempotent consumers, DLQs, observability, chaos testing |
 
 Roadmap: Phase 0 foundations → Phase 1 build it *wrong* (dual-write, double charges) →
 Phase 2 correctness (outbox, idempotency, saga) → Phase 3 production-readiness (tracing, SLOs, chaos) → Phase 4 ship.
@@ -28,30 +29,15 @@ Phase 2 correctness (outbox, idempotency, saga) → Phase 3 production-readiness
 
 ## Target architecture
 
-```mermaid
-flowchart LR
-    client([Client])
+Full view (containers + saga sequence with all failure paths): [docs/architecture.md](docs/architecture.md).
 
-    subgraph k8s["Kubernetes cluster"]
-        order["Order svc<br/>state machine"]
-        orderdb[("Postgres<br/>orders + outbox")]
-        kafka[["Kafka"]]
-        payment["Payment svc<br/>idempotent"]
-        inventory["Inventory svc<br/>reserve / release"]
-        notif["Notification svc"]
-    end
+![OrderFlow container diagram](docs/img/orderflow-app-diagram.png)
 
-    client -- "POST /orders" --> order
-    order -- "1 tx: order row + outbox row" --> orderdb
-    orderdb -- "CDC" --> kafka
-    kafka --> payment
-    kafka --> inventory
-    kafka --> notif
-    kafka -- "order-confirmed" --> order
-```
+[Interactive version in IcePanel](https://s.icepanel.io/qjQk3YauZVn2JL/LMt1)
 
-Order fulfilment is a **saga**: `order-created → stock-reserved → payment-completed → order-confirmed`,
-with compensation (release stock) when payment fails.
+Order fulfilment is a **choreographed saga**: `order-created → stock-reserved → payment-completed → order-confirmed`.
+If payment fails, Inventory releases the stock and the order is cancelled. If there is no stock, the order is cancelled
+and Payment is never called.
 
 *Today, only the order service and its database exist. Everything else is the target.*
 
@@ -131,4 +117,5 @@ Each one gets caused on purpose, fixed, and written up.
 
 - [War stories](docs/war-stories.md): what broke, why, and how I fixed it.
 - [Decisions](docs/decisions.md): what I chose, what I rejected, and why.
+- [Architecture](docs/architecture.md): the target design as C4 containers and the saga sequence.
  

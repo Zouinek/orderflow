@@ -48,16 +48,17 @@ Newest on top.
 **Context:** an order goes through several services: reserve stock, take payment, confirm, notify. Something has to decide which step comes next.
 
 **Decision:** choreography. Each service listens to the event of the previous step and publishes its own:
-- Inventory listens to `order-created`, publishes `stock-reserved`
+- Inventory listens to `order-created`, publishes `stock-reserved` or `stock-rejected`
 - Payment listens to `stock-reserved`, publishes `payment-completed` or `payment-failed`
-- Order listens to `payment-completed` / `payment-failed`, publishes `order-confirmed` / `order-cancelled`
+- Order listens to `stock-rejected` / `payment-completed` / `payment-failed`, publishes `order-confirmed` / `order-cancelled`
 - Notification listens to `order-confirmed` / `order-cancelled`
 
 On `payment-failed`, Inventory releases the stock and Order sets the order to `CANCELLED`.
+On `stock-rejected`, Order sets the order to `CANCELLED` and Payment is never called, so there is nothing to refund.
 
 **Rejected:** orchestration, where one central service tells each service what to do. The flow would be easier to read in one place, but that service has to know every other service and becomes a central point every change goes through.
 
-**Consequences:** no service knows the whole flow, so it is harder to see where an order is stuck. I need the C4 flows and good logging to follow an order. Adding a new step means one new listener instead of changing a coordinator. Open question: Inventory could listen to `order-cancelled` instead of `payment-failed`.
+**Consequences:** no service knows the whole flow, so it is harder to see where an order is stuck. I need the sequence diagram ([architecture](architecture.md)) and good logging to follow an order. Adding a new step means one new listener instead of changing a coordinator. Open question: Inventory could listen to `order-cancelled` instead of `payment-failed`.
 
 ## D3: transactional outbox over a dual write (2026-10-07)
 
