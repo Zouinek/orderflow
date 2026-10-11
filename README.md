@@ -25,6 +25,8 @@ until it stops failing. Every failure is reproduced on command and written up as
 Roadmap: Phase 0 foundations → Phase 1 build it *wrong* (dual-write, double charges) →
 Phase 2 correctness (outbox, idempotency, saga) → Phase 3 production-readiness (tracing, SLOs, chaos) → Phase 4 ship.
 
+Side milestone: **from kind to AWS.** Deploy the same manifests to EKS for a day (image in ECR, IAM for pulls, EBS volume for Postgres, LoadBalancer Service), write up what had to change, then tear it all down.
+
 ---
 
 ## Target architecture
