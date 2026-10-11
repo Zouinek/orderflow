@@ -87,3 +87,10 @@ sequenceDiagram
 
 The client gets `201` right away with status `CREATED`; the final status (`CONFIRMED` or `CANCELLED`) arrives later
 through `GET /orders/{id}`. That gap is eventual consistency.
+
+## Deployment (kind)
+
+What actually runs right now: the order API and Postgres on a single-node kind cluster.
+The services, Kafka and Debezium above are not deployed yet.
+
+![Kubernetes objects of the current deployment on kind](img/k8s/orderflow-k8s-diagram.png)
