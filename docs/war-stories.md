@@ -25,6 +25,35 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #9: Green build, zero tests (2026-10-11)
+
+**Commit:** `test(order): add Testcontainers integration test for create and fetch`
+
+**Symptom:** I ran `./mvnw test` and got `BUILD SUCCESS`, but there was no `Tests run:` line in the log: my new `OrderApiIT` test never ran.
+A CI pipeline built on that command would have stayed green forever while testing nothing.
+
+**Root cause:** 1. Surefire (phase `test`) runs only `*Test`, `*Tests`, `Test*`, `*TestCase`.
+`*IT` classes belong to Failsafe (phase `integration-test` / `verify`), which isn't on by default. 2. Surefire doesn't fail when it finds 0 tests.
+So "nothing ran" looks exactly like "everything passed".
+
+**Fix:** I've also added `maven-failsafe-plugin` with both goals:
+`integration-test` runs the tests, `verify` fails the build if one failed (without it, a red test still gives `BUILD SUCCESS`).
+No `<version>`, because the Spring Boot parent manages it.
+
+**Verified:** `./mvnw -pl services/order verify` now shows `failsafe:3.5.6:integration-test` with `Tests run: 1, Failures: 0` for `OrderApiIT`, then `failsafe:3.5.6:verify`.
+Then I broke the test on purpose: changed `.value("Tila")` to `.value("Bob")` and it went red (expected `Bob`, actual `Tila`). Changed it back, green again. A test I've never seen fail could be testing nothing.
+
+**Also learned:**
+- The test runs against a real `postgres:18` (same image as the StatefulSet) via Testcontainers, not H2. H2 is a different engine pretending to be Postgres: different SQL, different DDL from `ddl-auto`, no `SKIP LOCKED` the way Postgres does it, no WAL for Debezium. Green on H2 can still mean broken on Postgres.
+- `@ServiceConnection` replaces my datasource config: the log showed `jdbc:postgresql://localhost:49588/test`, a random port and a database called `test`, not my `DB_HOST`/`DB_NAME`. Ryuk is the extra container that cleans up even if the test crashes.
+- `standaloneSetup(new OrderController())` is a unit test (no Spring, no DB). `@SpringBootTest` + `@AutoConfigureMockMvc` runs the whole app against the container. I mixed both on my first try.
+- Don't hardcode the id from a previous run: the database picks it. Read it from the live response (`andReturn()` -> `getContentAsString()` -> `JsonPath.read(body, "$.id")`), and keep create + fetch in one test, because JUnit doesn't guarantee test order.
+- Testcontainers 2.x renamed things: artifacts are `testcontainers-postgresql` / `testcontainers-junit-jupiter`, the class is in `org.testcontainers.postgresql`. Most tutorials still show the old names, start.spring.io doesn't.
+
+**Concept:** A green signal only means something if it could have been red. "0 tests ran" and "all tests passed" print the same `BUILD SUCCESS`, so every check needs proof that it ran and that it can fail.
+
+---
+
 ## #8: One NO to spare (2026-10-06)
 
 **Commit:** `fix(k8s): add startupProbe so liveness cannot kill a booting pod`
