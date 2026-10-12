@@ -1,5 +1,7 @@
 # OrderFlow
 
+[![CI](https://github.com/Zouinek/orderflow/actions/workflows/ci.yml/badge.svg)](https://github.com/Zouinek/orderflow/actions/workflows/ci.yml)
+
 **An event-driven order & payment platform built to be broken on purpose.**
 
 > **The invariant this project defends:**
@@ -19,6 +21,7 @@ until it stops failing. Every failure is reproduced on command and written up as
 |---|---|
 | ✅ Done | Order service (REST + Postgres), containerized, running on Kubernetes (kind) with externalized config, health probes (liveness, readiness, startup), resource limits, graceful rolling updates (preStop + grace period), Postgres with persistent storage (StatefulSet + PVC), break-things lab (4 of 5 scenarios) |
 | ✅ Done | Target architecture designed: C4 containers, saga sequence with failure paths, [decisions](docs/decisions.md) D1 to D6 |
+| ✅ Done | Integration test against a real Postgres (Testcontainers), run by GitHub Actions CI on every push. [Kubernetes deployment diagram](docs/architecture.md#deployment-kind) |
 | 🔜 Next | Kafka: concepts, then Kafka in Docker, then the first producer and consumer |
 | 📋 Planned | Payment + inventory + notification services, transactional outbox + CDC (Debezium), saga with compensation, idempotent consumers, DLQs, observability, chaos testing |
 
