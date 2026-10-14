@@ -93,4 +93,7 @@ through `GET /orders/{id}`. That gap is eventual consistency.
 What actually runs right now: the order API and Postgres on a single-node kind cluster.
 The services, Kafka and Debezium above are not deployed yet.
 
+Observability (Prometheus, Grafana, OpenTelemetry) is planned and not shown.
+Key signals: consumer lag per group, outbox rows not yet published, saga timeouts.
+
 ![Kubernetes objects of the current deployment on kind](img/k8s/orderflow-k8s-diagram.png)
