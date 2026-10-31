@@ -1,0 +1,42 @@
+# Scans the built container image for known CVEs (OS packages + JARs inside it).
+# Fails the build on fixable CRITICAL/HIGH findings.
+name: Image scan
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build image
+        run: docker build -t orderflow-order:${{ github.sha }} .
+
+      # third-party action pinned to a commit SHA, not a tag (tags can be moved)
+      - name: Scan image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: orderflow-order:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          # without this, SARIF output ignores the severity filter above
+          limit-severities-for-sarif: true
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload results to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
