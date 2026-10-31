@@ -1,5 +1,5 @@
 # ---- build stage: compile inside the image so the build is reproducible ----
-FROM maven:3.9-eclipse-temurin-25 AS build
+FROM maven:3.9-eclipse-temurin-26 AS build
 WORKDIR /app
 
 # copy the poms FIRST (parent + module) so dependency download is cached
