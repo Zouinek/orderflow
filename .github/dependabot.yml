@@ -1,0 +1,22 @@
+# Weekly PRs for outdated or vulnerable dependencies.
+# Security updates also open PRs immediately once enabled in repo settings.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # one PR for all Spring updates instead of ten
+      spring:
+        patterns: [ "org.springframework*" ]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
