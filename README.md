@@ -30,6 +30,8 @@ Phase 2 correctness (outbox, idempotency, saga) → Phase 3 production-readiness
 
 Side milestone: **from kind to AWS.** Deploy the same manifests to EKS for a day (image in ECR, IAM for pulls, EBS volume for Postgres, LoadBalancer Service), write up what had to change, then tear it all down.
 
+Side milestone: **orders from free text.** A `POST /orders/parse` endpoint takes a sentence like "2x black hoodie size M to Braunschweig" and uses Spring AI (local model via Ollama) to turn it into a structured order. Treated like any other unreliable dependency: the LLM output is validated before it becomes an order, invalid or made-up output is rejected with a clear error, and tests mock the model so CI needs no API key.
+
 ---
 
 ## Target architecture
