@@ -25,6 +25,34 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #10: 12 CVEs I never asked for (2026-10-31)
+
+**Commit:** `fix(deps): bump Spring Boot to 4.1.2 to patch critical CVEs`
+
+**Symptom:** I added a Trivy image scan to CI and the first run went red. The log only said `Process completed with exit code 1`, no list of what was wrong.
+The findings were in the Security tab: 6 CRITICAL and 6 HIGH, all inside `app.jar/BOOT-INF/lib/`:
+`tomcat-embed-core` 11.0.22 (4 critical), `spring-webmvc` 7.0.8 (2 critical), `jackson-core`/`jackson-databind` 3.1.4 (5 high), `postgresql` 42.7.11 (1 high).
+The base image (Ubuntu 26.04) was clean. Every problem was in my JAR.
+
+**Root cause:** Tomcat, Spring MVC and Jackson aren't in my `pom.xml` at all. They are transitive dependencies: I declare `spring-boot-starter-webmvc` and `spring-boot-starter-data-jpa`, and those pull them in.
+The Postgres driver I do declare, but without a `<version>`. So none of these versions are picked by me, they're all picked by the `spring-boot-starter-parent` (the BOM). So I was shipping whatever 4.1.0 decided, and 4.1.0 had become old.
+CI had been green for weeks the whole time. Green only meant "it compiles and the tests pass", not "it's safe to run".
+
+**Fix:** One line: parent `4.1.0` -> `4.1.2`. I first went to 4.1.1, but 4.1.2 was already out, and comparing the two `spring-boot-dependencies` poms showed 4.1.2 moves every vulnerable library further (Tomcat 11.0.27, Spring 7.0.10, Jackson 3.1.7, Postgres driver 42.7.14).
+No `<version>` overrides on single libraries: overriding Tomcat by hand would fix today's CVE, but then the parent stops managing it and I'd have to remember it forever.
+
+**Verified:** Locally `./mvnw verify` compiled and the unit tests passed, but `OrderApiIT` failed with `Could not find a valid Docker environment` because Docker Desktop wasn't running (Testcontainers needs it). The real check is the PR: Image scan must go green with 0 CRITICAL/HIGH.
+
+**Also learned:**
+- Trivy with `format: sarif` ignores `severity: CRITICAL,HIGH` for the report and uploads everything (MEDIUMs too). It needs `limit-severities-for-sarif: true` so the Security tab matches what fails the build.
+- `ignore-unfixed: true`: only fail on CVEs that have a fixed version. A CVE with no fix is something to watch, not something I can act on today.
+- The Claude review job failed with `401 Unauthorized - Claude Code is not installed on this repository`. The OAuth token secret isn't enough, the Claude GitHub App also has to be installed on the repo.
+- Dependabot would have opened this exact bump as a PR. The scanner finds the problem, Dependabot keeps it from coming back.
+
+**Concept:** Most of the code I ship isn't mine. My `pom.xml` lists a few starters, but the JAR contains dozens of libraries I never chose, and each one can go bad after I stop looking. Security isn't a state the build is in, it decays over time, so the scan has to keep running on unchanged code.
+
+---
+
 ## #9: Green build, zero tests (2026-10-11)
 
 **Commit:** `test(order): add Testcontainers integration test for create and fetch`

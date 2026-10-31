@@ -29,6 +29,8 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
+          # without this, SARIF output ignores the severity filter above
+          limit-severities-for-sarif: true
           format: sarif
           output: trivy-results.sarif
 
