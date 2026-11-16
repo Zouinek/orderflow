@@ -25,6 +25,90 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #12: Green tests, broken upgrade (2026-11-17)
+
+**Commit:** `fix(order): migrate existing databases to Flyway with idempotent V2`
+
+**Symptom:** PR #7 passed every check (tests, CodeQL, Trivy). The Claude review still flagged it: *"Upgrade path
+breaks every existing database."* My kind cluster's Postgres has a 50-day-old PersistentVolume holding a table that
+Hibernate created, with no `flyway_schema_history`. Deploying the new image would have crash-looped the pods,
+the same failure as #11, but this time on data I couldn't throw away with `down -v`.
+
+**Root cause:** My tests only proved the *fresh install* path. Testcontainers always starts from an empty database,
+so V1 always runs cleanly. The *upgrade* path (an existing database created before Flyway) was never tested by anything.
+
+**Fix:**
+1. Looked before fixing. I counted the rows that would break the new rules:
+   `SELECT count(*) FILTER (WHERE price IS NULL) ... FROM orders;` → 2 rows, 0 violations, so no data cleanup was needed.
+2. Turned on `SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"` in `k8s/configmap.yaml` only, never in
+   `application.properties`. Baseline marks V1 as done on the cluster without running it.
+3. Wrote V2, which adds the constraints V1 promised. It has to work on both kinds of database:
+   - On kind: baselined, with no constraints.
+   - On fresh databases: V1 already added them, so a plain `ADD CONSTRAINT` fails with `already exists`.
+
+   So V2 is idempotent: `SET NOT NULL` and `SET DEFAULT` are safe to repeat, and each CHECK is
+   `DROP CONSTRAINT IF EXISTS` followed by `ADD CONSTRAINT`.
+4. Removed the baseline flag after the rollout. It only matters when there is no history table, and leaving it
+   on would silently baseline the next wrong database.
+
+Verified with `flyway_schema_history` and `\d orders` on both databases:
+
+| | Local (compose) | Cluster (kind) |
+|---|---|---|
+| V1 | `SQL` | `BASELINE` |
+| V2 | `SQL` | `SQL` |
+| Schema | same NOT NULLs, default and CHECKs | same, and the existing 2 rows kept |
+
+**Also learned:**
+- Never edit a migration that has already run. Flyway stores its checksum, and every database that ran it refuses
+  to start. Every change goes in a new `V<n>` file.
+- In `ALTER TABLE`, each comma-separated action does one thing, and a CHECK belongs to the table, not to a column.
+- `kind load docker-image` is needed because kind can't see local images. `rollout restart` is needed because the
+  `:local` tag didn't change.
+- Keep one-time steps as separate commits (flag on, then flag off), so the history shows the procedure.
+
+**Concept:** A schema change has two paths, fresh install and upgrade, and tests usually cover only the first.
+A migration must take *every* existing state to the same final state; that is what idempotent means.
+
+---
+
+## #11: The migration that never ran (2026-11-16)
+
+**Commit:** `feat(order): manage schema with Flyway migrations`
+
+**Symptom:** Running `./mvnw spring-boot:run -pl services/order` first failed with an unexpected error:
+`password authentication failed for user "orderflow"`. After fixing that, I got the error I expected:
+`Failed to initialize dependency 'flywayInitializer'`. The last `Caused by:` said: found non-empty schema
+"public" but no schema history table. Use baseline() or set baselineOnMigrate to true.
+
+**Root cause:** Two separate problems.
+1. Two programs were listening on port 5432: the Postgres in Docker and a Postgres installed directly on
+   Windows. `localhost:5432` reached the Windows one, which has no `orderflow` user.
+2. Hibernate (`ddl-auto=update`) had already created the `orders` table, but Flyway had no history.
+   Running V1 would fail with `relation "orders" already exists`, so Flyway refused. When I forced
+   `baseline-on-migrate=true`, Flyway marked V1 as applied **without running it**: the history said
+   `BASELINE`, `\d orders` showed no NOT NULL, no CHECK and no default, and the app **still started green**,
+   because `validate` only checks types.
+
+**Fix:** Stopped the Windows Postgres service and set it to Manual startup (admin PowerShell). Reset the dev
+database with `docker compose down -v` so the old table didn't survive, then let Flyway migrate from scratch.
+Verified with `flyway_schema_history` showing `type = SQL`, and `\d orders` listing NOT NULLs, `DEFAULT now()`
+and both `Check constraints`.
+
+**Also learned:**
+- "Auth failed" can mean *wrong server*, not wrong password. `netstat -ano` + `Get-Process -Id` showed who
+  owned the port. Stopping a Windows service needs an admin PowerShell.
+- Read the **last** `Caused by:` in a Spring stack trace; the top line is only the wrapper.
+- `ddl-auto=validate` checks tables, columns and types, not constraints, nullability or identity.
+- `down -v` is only OK for dev. In production I would baseline knowingly, then write a V2 that adds the
+  missing constraints. Database rules apply to all data, not only new data: old data has to be cleaned
+  before a new rule can be added.
+
+**Concept:** The schema history table is a *record* of which migrations ran, and Flyway trusts it without
+checking the real schema. Baseline writes that record without doing the work, so the record and reality can
+disagree silently. Refusing to start is the safe default when the state is unknown.
+
+---
 ## #10: 12 CVEs I never asked for (2026-10-31)
 
 **Commit:** `fix(deps): bump Spring Boot to 4.1.2 to patch critical CVEs`
