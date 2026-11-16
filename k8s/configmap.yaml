@@ -6,5 +6,7 @@ data:
   DB_NAME: orderflow
   DB_HOST: postgres
   DB_PORT: "5432"
+  # One-time: adopt the pre-Flyway DB (created by ddl-auto=update). Remove after first rollout.
+  SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
 
 

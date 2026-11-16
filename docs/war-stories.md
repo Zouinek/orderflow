@@ -24,6 +24,54 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 ```
 
 ---
+
+## #12: Green tests, broken upgrade (2026-11-17)
+
+**Commit:** `fix(order): migrate existing databases to Flyway with idempotent V2`
+
+**Symptom:** PR #7 passed every check (tests, CodeQL, Trivy). The Claude review still flagged it: *"Upgrade path
+breaks every existing database."* My kind cluster's Postgres has a 50-day-old PersistentVolume holding a table that
+Hibernate created, with no `flyway_schema_history`. Deploying the new image would have crash-looped the pods,
+the same failure as #11, but this time on data I couldn't throw away with `down -v`.
+
+**Root cause:** My tests only proved the *fresh install* path. Testcontainers always starts from an empty database,
+so V1 always runs cleanly. The *upgrade* path (an existing database created before Flyway) was never tested by anything.
+
+**Fix:**
+1. Looked before fixing. I counted the rows that would break the new rules:
+   `SELECT count(*) FILTER (WHERE price IS NULL) ... FROM orders;` → 2 rows, 0 violations, so no data cleanup was needed.
+2. Turned on `SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"` in `k8s/configmap.yaml` only, never in
+   `application.properties`. Baseline marks V1 as done on the cluster without running it.
+3. Wrote V2, which adds the constraints V1 promised. It has to work on both kinds of database:
+   - On kind: baselined, with no constraints.
+   - On fresh databases: V1 already added them, so a plain `ADD CONSTRAINT` fails with `already exists`.
+
+   So V2 is idempotent: `SET NOT NULL` and `SET DEFAULT` are safe to repeat, and each CHECK is
+   `DROP CONSTRAINT IF EXISTS` followed by `ADD CONSTRAINT`.
+4. Removed the baseline flag after the rollout. It only matters when there is no history table, and leaving it
+   on would silently baseline the next wrong database.
+
+Verified with `flyway_schema_history` and `\d orders` on both databases:
+
+| | Local (compose) | Cluster (kind) |
+|---|---|---|
+| V1 | `SQL` | `BASELINE` |
+| V2 | `SQL` | `SQL` |
+| Schema | same NOT NULLs, default and CHECKs | same, and the existing 2 rows kept |
+
+**Also learned:**
+- Never edit a migration that has already run. Flyway stores its checksum, and every database that ran it refuses
+  to start. Every change goes in a new `V<n>` file.
+- In `ALTER TABLE`, each comma-separated action does one thing, and a CHECK belongs to the table, not to a column.
+- `kind load docker-image` is needed because kind can't see local images. `rollout restart` is needed because the
+  `:local` tag didn't change.
+- Keep one-time steps as separate commits (flag on, then flag off), so the history shows the procedure.
+
+**Concept:** A schema change has two paths, fresh install and upgrade, and tests usually cover only the first.
+A migration must take *every* existing state to the same final state; that is what idempotent means.
+
+---
+
 ## #11: The migration that never ran (2026-11-16)
 
 **Commit:** `feat(order): manage schema with Flyway migrations`
