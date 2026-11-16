@@ -24,7 +24,43 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 ```
 
 ---
+## #11: The migration that never ran (2026-11-16)
 
+**Commit:** `feat(order): manage schema with Flyway migrations`
+
+**Symptom:** Running `./mvnw spring-boot:run -pl services/order` first failed with an unexpected error:
+`password authentication failed for user "orderflow"`. After fixing that, I got the error I expected:
+`Failed to initialize dependency 'flywayInitializer'`. The last `Caused by:` said: found non-empty schema
+"public" but no schema history table. Use baseline() or set baselineOnMigrate to true.
+
+**Root cause:** Two separate problems.
+1. Two programs were listening on port 5432: the Postgres in Docker and a Postgres installed directly on
+   Windows. `localhost:5432` reached the Windows one, which has no `orderflow` user.
+2. Hibernate (`ddl-auto=update`) had already created the `orders` table, but Flyway had no history.
+   Running V1 would fail with `relation "orders" already exists`, so Flyway refused. When I forced
+   `baseline-on-migrate=true`, Flyway marked V1 as applied **without running it**: the history said
+   `BASELINE`, `\d orders` showed no NOT NULL, no CHECK and no default, and the app **still started green**,
+   because `validate` only checks types.
+
+**Fix:** Stopped the Windows Postgres service and set it to Manual startup (admin PowerShell). Reset the dev
+database with `docker compose down -v` so the old table didn't survive, then let Flyway migrate from scratch.
+Verified with `flyway_schema_history` showing `type = SQL`, and `\d orders` listing NOT NULLs, `DEFAULT now()`
+and both `Check constraints`.
+
+**Also learned:**
+- "Auth failed" can mean *wrong server*, not wrong password. `netstat -ano` + `Get-Process -Id` showed who
+  owned the port. Stopping a Windows service needs an admin PowerShell.
+- Read the **last** `Caused by:` in a Spring stack trace; the top line is only the wrapper.
+- `ddl-auto=validate` checks tables, columns and types, not constraints, nullability or identity.
+- `down -v` is only OK for dev. In production I would baseline knowingly, then write a V2 that adds the
+  missing constraints. Database rules apply to all data, not only new data: old data has to be cleaned
+  before a new rule can be added.
+
+**Concept:** The schema history table is a *record* of which migrations ran, and Flyway trusts it without
+checking the real schema. Baseline writes that record without doing the work, so the record and reality can
+disagree silently. Refusing to start is the safe default when the state is unknown.
+
+---
 ## #10: 12 CVEs I never asked for (2026-10-31)
 
 **Commit:** `fix(deps): bump Spring Boot to 4.1.2 to patch critical CVEs`
