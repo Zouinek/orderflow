@@ -1,6 +1,7 @@
 package com.orderflow.order;
 
 import java.util.List;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -17,27 +18,36 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrderController {
 
     private final OrderRepository repository;
+    private final OrderMapper mapper;
 
-    public OrderController(OrderRepository repository) {
+    public OrderController(OrderRepository repository, OrderMapper mapper) {
         this.repository = repository;
+        this.mapper = mapper;
     }
 
     @GetMapping
-    public List<Order> all() {
-        return repository.findAll();
+    public List<OrderResponse> all() {
+        return repository.findAll()
+                .stream()
+                .map(mapper::toResponse)
+                .toList();
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Order> one(@PathVariable Long id) {
+    public ResponseEntity<OrderResponse> findById(@PathVariable Long id) {
         return repository.findById(id)
+                .map(mapper::toResponse)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public Order create(@RequestBody Order order) {
-        return repository.save(order);
+    public OrderResponse create(@RequestBody CreateOrderRequest request) {
+        Order order = mapper.toEntity(request);
+        Order saved = repository.save(order);
+
+        return mapper.toResponse(saved);
     }
 
     @DeleteMapping("/{id}")

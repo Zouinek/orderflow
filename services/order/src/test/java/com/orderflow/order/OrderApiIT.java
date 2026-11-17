@@ -13,12 +13,12 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.not;
 
 @Testcontainers
 @SpringBootTest
@@ -52,6 +52,47 @@ public class OrderApiIT {
         mvc.perform(get("/orders/{id}", id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.customerName").value("Tila"));
+    }
+
+    @Test
+    void postWithClientIdDoesNotOverWriteExistingOrder(@Autowired MockMvc mvc) throws Exception {
+        MvcResult aliceResult = mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "Alice",
+                                "item" : "Book",
+                                "quantity" : 3,
+                                "price" : 14.95
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String aliceBody = aliceResult.getResponse().getContentAsString();
+        Integer aliceId = JsonPath.read(aliceBody, "$.id");
+
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "id" : %d,
+                                "customerName" : "Eve",
+                                "item" : "Book",
+                                "quantity" : 3,
+                                "price" : 14.95
+                                 }
+                                """.formatted(aliceId)))
+                .andDo(print())
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(not(aliceId)));
+
+
+        mvc.perform(get("/orders/{id}", aliceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.customerName").value("Alice"));
+
     }
 
 
