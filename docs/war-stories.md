@@ -25,6 +25,53 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #13 — POST /orders could overwrite any order (2026-11-17)
+
+**Commit:** `fix(order): prevent POST /orders from overwriting existing orders`
+
+**Symptom:** I sent `POST /orders` with an extra `"id"` field in the JSON body:
+- `"id": 999` (no such order) → `500 Internal Server Error` instead of a new order.
+- `"id": 1` (an existing order) → `201 Created`, but no new order was created. Order 1 was **overwritten** with
+  my data. Anyone could change someone else's order, for example set its price to `0`. Its `createdAt` was also
+  replaced with `now()`, so the order lost its real creation date.
+
+**Root cause:** The controller used the JPA entity `Order` as the request body (`@RequestBody Order`), so the
+client controlled *every* field of the entity, not only the ones it should. Two behaviours combined:
+1. `Order` has no `setId()`, but Jackson still writes the JSON value into the private `id` field, because the field
+   has a getter. So the client's `id` reached the entity.
+2. `repository.save(order)` looks at the id. If it is not `null`, Spring Data thinks the order already exists and
+   runs a *merge* (`UPDATE`) instead of an `INSERT`. With id 999 Hibernate found no row to update and threw an
+   exception (the 500). With id 1 it found the row and updated it.
+
+This is called **mass assignment**: the API accepts more fields than it should, and the database model is exposed
+as the API contract.
+
+**Fix:** I separated the API contract from the database model with DTOs (Java records):
+- `CreateOrderRequest`: only the fields the client is allowed to decide (`customerName`, `item`, `quantity`,
+  `price`). No `id`, no `createdAt`.
+- `OrderResponse`: what the client sees, including the computed `total`.
+- `OrderMapper` (a stateless `@Component`) converts request → entity and entity → response. The controller never
+  receives or returns `Order` anymore.
+
+Spring Boot ignores unknown JSON fields, so an `"id"` in the body is now simply dropped. Verified with curl
+(`POST` with `"id": 1` created a new order 2, order 1 unchanged) and an integration test
+`postWithClientIdDoesNotOverWriteExistingOrder`. I watched it fail against the old code
+(`Expected: not <2> but: was <2>`) before making it pass.
+
+**Also learned:**
+- A test must fail **for the right reason**. My first two "watch it fail" attempts failed for other reasons
+  (a `400` from a broken GET, then "Ambiguous mapping" from two `@PostMapping` methods on the same URL).
+- A Hamcrest `jsonPath(...)` matcher checks nothing unless it is inside `.andExpect(...)`.
+- Text blocks need `%d` + `.formatted(value)` to insert a value. Writing `"id": id` just sends the text `id`.
+- The running app must be restarted to pick up code changes. I first tested old code and was confused.
+- An identity sequence gives the *next* value, not `max + 1`. Gaps in ids are normal.
+
+**Concept:** The API is a contract with the outside world; the entity is an internal storage detail. Keeping them
+separate means a client can only send what you explicitly allow, and the database schema can change without
+breaking clients.
+
+---
+
 ## #12: Green tests, broken upgrade (2026-11-17)
 
 **Commit:** `fix(order): migrate existing databases to Flyway with idempotent V2`
