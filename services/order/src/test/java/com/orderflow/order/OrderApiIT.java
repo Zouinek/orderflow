@@ -167,5 +167,24 @@ public class OrderApiIT {
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
+    @Test
+    void postWithDecimalQuantityReturns400WithFieldError (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "Alice",
+                                "item" : "Book",
+                                "quantity" : 1.9,
+                                "price" : 14.95
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.quantity").exists())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+
 
 }

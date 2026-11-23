@@ -31,6 +31,7 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 - `fix(order): return 400 with field errors instead of 500 for invalid orders`
 - `fix(order): return field errors for non-numeric values and oversized input` (after the PR review)
 - `fix(order): never return 500 from the error handler for an empty JSON path` (second review)
+- `fix(order): reject decimal quantities instead of silently truncating them` (third review)
 
 **Symptom:** I sent `POST /orders` with bad input on purpose:
 
@@ -82,6 +83,12 @@ The second review found two more things:
   for 1000 (a bulk order could be bigger), so I removed it.
 - A fourth test sends a 256-character `customerName` and expects `$.errors.customerName`.
 
+The third review guessed (without testing) that `"quantity": 1.9` might be silently truncated. I checked with curl:
+`201 Created` with `"quantity": 1`. The client asked for 1.9 and got 1, with no error. `@Positive` cannot catch it,
+because Jackson already changed the value before validation runs. Fix: `spring.jackson.deserialization.accept-float-as-int=false`.
+Now it returns `400` with `errors.quantity`, through the same `InvalidFormatException` path, so the handler needed
+no change. A fifth test covers it.
+
 A third test sends `"price": "abc"`. With the new handler commented out it failed with
 `No value at JSON path "$.errors.price"`: the status was already `400`, only the field information was missing.
 
@@ -104,6 +111,8 @@ Now every bad request above returns `400` with, for example, `"errors": {"quanti
   Validation's built-in messages depend on the locale.
 - `isBadRequest()` alone can pass for the wrong reason. My long-name test first sent broken JSON (`%s` without
   quotes), got a `400` from the JSON parser, and only `$.errors.customerName` showed that validation never ran.
+- A silent wrong value is worse than an error. Nobody notices `1.9` becoming `1`.
+- A review comment is a hypothesis, not a fact. The reviewer was not sure, so I tested it myself with one curl.
 
 **Concept:** Validate at the door, and keep the database as the last line of defense. The API should reject bad
 input early, with a clear `4xx` that says what to fix. Database constraints still protect the data if something
