@@ -30,7 +30,7 @@ public class OrderApiIT {
 
 
     @Test
-    void createdOrderCanBeFetchedById(@Autowired MockMvc mvc) throws Exception {
+    void createdOrderCanBeFetchedById (@Autowired MockMvc mvc) throws Exception {
         MvcResult result = mvc.perform(post("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -54,7 +54,7 @@ public class OrderApiIT {
     }
 
     @Test
-    void postWithClientIdDoesNotOverWriteExistingOrder(@Autowired MockMvc mvc) throws Exception {
+    void postWithClientIdDoesNotOverWriteExistingOrder (@Autowired MockMvc mvc) throws Exception {
         MvcResult aliceResult = mvc.perform(post("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -132,7 +132,7 @@ public class OrderApiIT {
     }
 
     @Test
-    void postWithNonNumericPriceReturns400WithFieldError(@Autowired MockMvc mvc) throws Exception {
+    void postWithNonNumericPriceReturns400WithFieldError (@Autowired MockMvc mvc) throws Exception {
         mvc.perform(post("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -146,6 +146,24 @@ public class OrderApiIT {
                 .andDo(print())
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.price").value("must be a valid number"))
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void postWithTooLongCustomerNameReturns400WithFieldError (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "%s",
+                                "item" : "Book",
+                                "quantity" : 3,
+                                "price" : 14.95
+                                 }
+                                """.formatted("a".repeat(256))))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.customerName").exists())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
     }
 

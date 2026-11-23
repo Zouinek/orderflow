@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 public record CreateOrderRequest(
         @NotBlank @Size(max = 255) String customerName,
         @NotBlank @Size(max = 255) String item,
-        @NotNull @Positive @Max(1000) Integer quantity,
+        @NotNull @Positive Integer quantity,
         @NotNull @Digits(integer = 10, fraction = 2) @DecimalMin("0") BigDecimal price) {
 
 }

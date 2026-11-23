@@ -52,7 +52,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             WebRequest request) {
         Map<String, String> errors = new LinkedHashMap<>();
 
-        if (ex.getCause() instanceof InvalidFormatException ife) {
+        if (ex.getCause() instanceof InvalidFormatException ife && !ife.getPath().isEmpty()) {
             String field = ife.getPath().get(0).getPropertyName();
             errors.put(field, "must be a valid number");
         }

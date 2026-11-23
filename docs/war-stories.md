@@ -30,6 +30,7 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 **Commits:**
 - `fix(order): return 400 with field errors instead of 500 for invalid orders`
 - `fix(order): return field errors for non-numeric values and oversized input` (after the PR review)
+- `fix(order): never return 500 from the error handler for an empty JSON path` (second review)
 
 **Symptom:** I sent `POST /orders` with bad input on purpose:
 
@@ -71,8 +72,15 @@ The PR review (#10) found two gaps that I fixed in a second commit:
   exists. I overrode `handleHttpMessageNotReadable`: if the cause is Jackson's `InvalidFormatException`,
   `getPath().get(0).getPropertyName()` gives the field, and the response says `"price": "must be a valid number"`.
   Broken JSON (no field to name) still returns a clean `400`.
-- **Input bigger than the DB columns still gave a `500`.** Added `@Size(max = 255)` on the strings (`VARCHAR(255)`),
-  `@Max(1000)` on `quantity`, and `@Digits(integer = 10, fraction = 2)` on `price`.
+- **Input bigger than the DB columns still gave a `500`.** Added `@Size(max = 255)` on the strings (`VARCHAR(255)`)
+  and `@Digits(integer = 10, fraction = 2)` on `price`.
+
+The second review found two more things:
+- `getPath().get(0)` could throw on an empty path, and an exception *inside* the error handler is a `500` again.
+  Added `!ife.getPath().isEmpty()` to the `if`.
+- I had also added `@Max(1000)` on `quantity`. That is a business rule, not a DB limit, and I had no real reason
+  for 1000 (a bulk order could be bigger), so I removed it.
+- A fourth test sends a 256-character `customerName` and expects `$.errors.customerName`.
 
 A third test sends `"price": "abc"`. With the new handler commented out it failed with
 `No value at JSON path "$.errors.price"`: the status was already `400`, only the field information was missing.
@@ -94,6 +102,8 @@ Now every bad request above returns `400` with, for example, `"errors": {"quanti
   have passed again. Annotations stack: each one checks one rule.
 - An exact message in a test is fine when **I** wrote the message (`"must be a valid number"`). Only Bean
   Validation's built-in messages depend on the locale.
+- `isBadRequest()` alone can pass for the wrong reason. My long-name test first sent broken JSON (`%s` without
+  quotes), got a `400` from the JSON parser, and only `$.errors.customerName` showed that validation never ran.
 
 **Concept:** Validate at the door, and keep the database as the last line of defense. The API should reject bad
 input early, with a clear `4xx` that says what to fix. Database constraints still protect the data if something
