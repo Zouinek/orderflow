@@ -25,6 +25,112 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #14 — Client mistakes returned 500 (2026-11-23)
+
+**Commits:**
+- `fix(order): return 400 with field errors instead of 500 for invalid orders`
+- `fix(order): return field errors for non-numeric values and oversized input` (after the PR review)
+- `fix(order): never return 500 from the error handler for an empty JSON path` (second review)
+- `fix(order): reject decimal quantities instead of silently truncating them` (third review)
+- `fix(order): reject zero-price orders and say when quantity must be a whole number` (fourth review)
+
+**Symptom:** I sent `POST /orders` with bad input on purpose:
+
+| Request | Response |
+|---|---|
+| no `quantity` | `500 Internal Server Error` |
+| `"quantity": -5` | `500 Internal Server Error` |
+| no `customerName` | `500 Internal Server Error` |
+| `"price": "abc"` | `400 Bad Request`, but the body did not say which field was wrong |
+
+All four are client mistakes, so they should be `4xx`. A `500` tells the client "the server is broken", and a
+developer using my API had no way to know what to fix.
+
+**Root cause:** Nothing checked the request before it reached the code, and nothing handled the exceptions that
+came after. Each bad request crashed in a different place:
+- **No quantity:** Jackson set `quantity` to `null`. The mapper passed it to `setQuantity(int)`, and Java cannot
+  unbox `null` into an `int`, so it threw a `NullPointerException`.
+- **Negative quantity:** the Java code accepted `-5`. Only Postgres stopped it, with the `CHECK` constraint.
+- **No customerName:** same thing. Postgres stopped it with `NOT NULL`.
+- **price "abc":** Jackson could not parse it. Spring turns that into a `400` automatically, but with a generic body.
+
+Spring Boot answers any unhandled exception with `500`, even when the real cause is bad input.
+
+**Fix:** validate the request at the door, and return a clear error body:
+- Added `spring-boot-starter-validation` (no `<version>`; the Spring Boot parent manages it).
+- Put constraints on `CreateOrderRequest`: `@NotBlank` on the strings, `@NotNull @Positive` on `quantity`, and
+  `@NotNull @DecimalMin("0")` on `price`.
+- Added `@Valid` on the `@RequestBody` in `OrderController`, so invalid input is rejected before any of my code runs.
+- Enabled `spring.mvc.problemdetails.enabled=true`, so errors use the standard RFC 9457 format
+  (`application/problem+json`).
+- `ApiExceptionHandler` (`@RestControllerAdvice`) adds an `errors` map (field → message) to that ProblemDetail.
+
+I verified it with curl and two integration tests: one missing field, and one with all fields invalid (4 errors).
+I removed `@Valid` once to watch a test fail: it crashed with the same `NullPointerException`, which was the right
+reason. Then I put it back, and the tests passed.
+
+The PR review (#10) found two gaps that I fixed in a second commit:
+- **`"price": "abc"` still had a generic body.** Validation never runs here, because Jackson fails before the record
+  exists. I overrode `handleHttpMessageNotReadable`: if the cause is Jackson's `InvalidFormatException`,
+  `getPath().get(0).getPropertyName()` gives the field, and the response says `"price": "must be a valid number"`.
+  Broken JSON (no field to name) still returns a clean `400`.
+- **Input bigger than the DB columns still gave a `500`.** Added `@Size(max = 255)` on the strings (`VARCHAR(255)`)
+  and `@Digits(integer = 10, fraction = 2)` on `price`.
+
+The second review found two more things:
+- `getPath().get(0)` could throw on an empty path, and an exception *inside* the error handler is a `500` again.
+  Added `!ife.getPath().isEmpty()` to the `if`.
+- I had also added `@Max(1000)` on `quantity`. That is a business rule, not a DB limit, and I had no real reason
+  for 1000 (a bulk order could be bigger), so I removed it.
+- A fourth test sends a 256-character `customerName` and expects `$.errors.customerName`.
+
+The third review guessed (without testing) that `"quantity": 1.9` might be silently truncated. I checked with curl:
+`201 Created` with `"quantity": 1`. The client asked for 1.9 and got 1, with no error. `@Positive` cannot catch it,
+because Jackson already changed the value before validation runs. Fix: `spring.jackson.deserialization.accept-float-as-int=false`.
+Now it returns `400` with `errors.quantity`, through the same `InvalidFormatException` path, so the handler needed
+no change. A fifth test covers it.
+
+The fourth review found two last points:
+- For `"quantity": 1.9` the message `"must be a valid number"` was wrong, because 1.9 *is* a number. The handler now
+  picks the message from `ife.getTargetType()`: `"must be a whole number"` for `Integer`, `"must be a valid number"`
+  otherwise.
+- `@DecimalMin("0")` is inclusive, so a price of `0` created a free order. I decided free orders are not allowed and
+  changed it to `@Positive`. The DB still allows `price >= 0`, which is fine: the API may be stricter than the
+  database. A sixth test checks the boundary (`"price": 0` → `400`).
+
+A third test sends `"price": "abc"`. With the new handler commented out it failed with
+`No value at JSON path "$.errors.price"`: the status was already `400`, only the field information was missing.
+
+Now every bad request above returns `400` with, for example, `"errors": {"quantity": "must not be null"}`.
+
+**Also learned:**
+- `@NotBlank` already includes `@NotNull` and `@NotEmpty`. Putting all three gives three duplicate messages.
+- Number constraints like `@Positive` ignore `null`, so they need `@NotNull` too.
+- `Collectors.toMap` throws on a duplicate key unless you give it a merge function, like `(first, second) -> first`.
+- JUnit **Failure** = an assertion was wrong. **Error** = the test crashed with an exception.
+- MockMvc has no Tomcat. An unhandled exception goes straight into the test instead of becoming a `500`.
+- Don't check exact validation messages in tests. They depend on the locale, so use `.exists()`.
+- "Port 8080 already in use" was my Docker `app` container. Fix: `docker compose stop app`.
+- In PowerShell, `\"` inside curl JSON breaks the body and gives a misleading `400`. Pipe the JSON into
+  `curl.exe --data-binary "@-"` instead.
+- Spring Boot 4 uses **Jackson 3**: the package is `tools.jackson...`, not `com.fasterxml.jackson...`.
+- `@Digits` only counts digits, it does not check the sign. When I replaced `@DecimalMin("0")` with it, `-5` would
+  have passed again. Annotations stack: each one checks one rule.
+- An exact message in a test is fine when **I** wrote the message (`"must be a valid number"`). Only Bean
+  Validation's built-in messages depend on the locale.
+- `isBadRequest()` alone can pass for the wrong reason. My long-name test first sent broken JSON (`%s` without
+  quotes), got a `400` from the JSON parser, and only `$.errors.customerName` showed that validation never ran.
+- A silent wrong value is worse than an error. Nobody notices `1.9` becoming `1`.
+- A review comment is a hypothesis, not a fact. The reviewer was not sure, so I tested it myself with one curl.
+- An error message must be true for every input that reaches it. Check it against real examples (`1.9`, `"abc"`),
+  not only the one you had in mind.
+- Limits like `VARCHAR(255)` come from the database. Limits like "no free orders" are business rules, and need a
+  conscious decision plus a boundary test.
+
+**Concept:** Validate at the door, and keep the database as the last line of defense. The API should reject bad
+input early, with a clear `4xx` that says what to fix. Database constraints still protect the data if something
+gets past the API, but they should never be the thing that answers the client.
+
 ## #13 — POST /orders could overwrite any order (2026-11-17)
 
 **Commit:** `fix(order): prevent POST /orders from overwriting existing orders`

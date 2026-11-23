@@ -16,9 +16,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @Testcontainers
 @SpringBootTest
@@ -31,7 +30,7 @@ public class OrderApiIT {
 
 
     @Test
-    void createdOrderCanBeFetchedById(@Autowired MockMvc mvc) throws Exception {
+    void createdOrderCanBeFetchedById (@Autowired MockMvc mvc) throws Exception {
         MvcResult result = mvc.perform(post("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -55,7 +54,7 @@ public class OrderApiIT {
     }
 
     @Test
-    void postWithClientIdDoesNotOverWriteExistingOrder(@Autowired MockMvc mvc) throws Exception {
+    void postWithClientIdDoesNotOverWriteExistingOrder (@Autowired MockMvc mvc) throws Exception {
         MvcResult aliceResult = mvc.perform(post("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -94,6 +93,116 @@ public class OrderApiIT {
                 .andExpect(jsonPath("$.customerName").value("Alice"));
 
     }
+
+    @Test
+    void postWithoutQuantityReturns400WithFieldError (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "Alice",
+                                "item" : "Book",
+                                "price" : 14.95
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.quantity").exists())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void postWithAllFieldsInvalidReturnsAllErrors (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : " ",
+                                "quantity" : -3,
+                                "price" : -1
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.customerName").exists())
+                .andExpect(jsonPath("$.errors.item").exists())
+                .andExpect(jsonPath("$.errors.quantity").exists())
+                .andExpect(jsonPath("$.errors.price").exists())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void postWithNonNumericPriceReturns400WithFieldError (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "Alice",
+                                "item" : "Book",
+                                "quantity" : 3,
+                                "price" : "abc"
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.price").value("must be a valid number"))
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void postWithTooLongCustomerNameReturns400WithFieldError (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "%s",
+                                "item" : "Book",
+                                "quantity" : 3,
+                                "price" : 14.95
+                                 }
+                                """.formatted("a".repeat(256))))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.customerName").exists())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void postWithDecimalQuantityReturns400WithFieldError (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "Alice",
+                                "item" : "Book",
+                                "quantity" : 1.9,
+                                "price" : 14.95
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.quantity").exists())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void postWithZeroPriceReturns400WithFieldError (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "Alice",
+                                "item" : "Book",
+                                "quantity" : 3,
+                                "price" : 0
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.price").exists())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
 
 
 }
