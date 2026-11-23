@@ -107,7 +107,7 @@ public class OrderApiIT {
                                 """))
                 .andDo(print())
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors.quantity").value("must not be null"))
+                .andExpect(jsonPath("$.errors.quantity").exists())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
@@ -128,6 +128,24 @@ public class OrderApiIT {
                 .andExpect(jsonPath("$.errors.item").exists())
                 .andExpect(jsonPath("$.errors.quantity").exists())
                 .andExpect(jsonPath("$.errors.price").exists())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void postWithNonNumericPriceReturns400WithFieldError(@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "Alice",
+                                "item" : "Book",
+                                "quantity" : 3,
+                                "price" : "abc"
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.price").value("must be a valid number"))
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
     }
 

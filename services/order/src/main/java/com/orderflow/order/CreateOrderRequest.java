@@ -5,9 +5,9 @@ import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
 
 public record CreateOrderRequest(
-        @NotBlank String customerName,
-        @NotBlank String item,
-        @NotNull @Positive Integer quantity,
-        @NotNull @DecimalMin("0") BigDecimal price) {
+        @NotBlank @Size(max = 255) String customerName,
+        @NotBlank @Size(max = 255) String item,
+        @NotNull @Positive @Max(1000) Integer quantity,
+        @NotNull @Digits(integer = 10, fraction = 2) @DecimalMin("0") BigDecimal price) {
 
 }

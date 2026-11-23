@@ -27,7 +27,9 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ## #14 — Client mistakes returned 500 (2026-11-23)
 
-**Commit:** `fix(order): return 400 with field errors instead of 500 for invalid orders`
+**Commits:**
+- `fix(order): return 400 with field errors instead of 500 for invalid orders`
+- `fix(order): return field errors for non-numeric values and oversized input` (after the PR review)
 
 **Symptom:** I sent `POST /orders` with bad input on purpose:
 
@@ -60,10 +62,22 @@ Spring Boot answers any unhandled exception with `500`, even when the real cause
   (`application/problem+json`).
 - `ApiExceptionHandler` (`@RestControllerAdvice`) adds an `errors` map (field → message) to that ProblemDetail.
 
-Now every bad request above returns `400` with, for example, `"errors": {"quantity": "must not be null"}`.
 I verified it with curl and two integration tests: one missing field, and one with all fields invalid (4 errors).
 I removed `@Valid` once to watch a test fail: it crashed with the same `NullPointerException`, which was the right
 reason. Then I put it back, and the tests passed.
+
+The PR review (#10) found two gaps that I fixed in a second commit:
+- **`"price": "abc"` still had a generic body.** Validation never runs here, because Jackson fails before the record
+  exists. I overrode `handleHttpMessageNotReadable`: if the cause is Jackson's `InvalidFormatException`,
+  `getPath().get(0).getPropertyName()` gives the field, and the response says `"price": "must be a valid number"`.
+  Broken JSON (no field to name) still returns a clean `400`.
+- **Input bigger than the DB columns still gave a `500`.** Added `@Size(max = 255)` on the strings (`VARCHAR(255)`),
+  `@Max(1000)` on `quantity`, and `@Digits(integer = 10, fraction = 2)` on `price`.
+
+A third test sends `"price": "abc"`. With the new handler commented out it failed with
+`No value at JSON path "$.errors.price"`: the status was already `400`, only the field information was missing.
+
+Now every bad request above returns `400` with, for example, `"errors": {"quantity": "must not be null"}`.
 
 **Also learned:**
 - `@NotBlank` already includes `@NotNull` and `@NotEmpty`. Putting all three gives three duplicate messages.
@@ -75,6 +89,11 @@ reason. Then I put it back, and the tests passed.
 - "Port 8080 already in use" was my Docker `app` container. Fix: `docker compose stop app`.
 - In PowerShell, `\"` inside curl JSON breaks the body and gives a misleading `400`. Pipe the JSON into
   `curl.exe --data-binary "@-"` instead.
+- Spring Boot 4 uses **Jackson 3**: the package is `tools.jackson...`, not `com.fasterxml.jackson...`.
+- `@Digits` only counts digits, it does not check the sign. When I replaced `@DecimalMin("0")` with it, `-5` would
+  have passed again. Annotations stack: each one checks one rule.
+- An exact message in a test is fine when **I** wrote the message (`"must be a valid number"`). Only Bean
+  Validation's built-in messages depend on the locale.
 
 **Concept:** Validate at the door, and keep the database as the last line of defense. The API should reject bad
 input early, with a clear `4xx` that says what to fix. Database constraints still protect the data if something
