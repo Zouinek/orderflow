@@ -32,6 +32,7 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 - `fix(order): return field errors for non-numeric values and oversized input` (after the PR review)
 - `fix(order): never return 500 from the error handler for an empty JSON path` (second review)
 - `fix(order): reject decimal quantities instead of silently truncating them` (third review)
+- `fix(order): reject zero-price orders and say when quantity must be a whole number` (fourth review)
 
 **Symptom:** I sent `POST /orders` with bad input on purpose:
 
@@ -89,6 +90,14 @@ because Jackson already changed the value before validation runs. Fix: `spring.j
 Now it returns `400` with `errors.quantity`, through the same `InvalidFormatException` path, so the handler needed
 no change. A fifth test covers it.
 
+The fourth review found two last points:
+- For `"quantity": 1.9` the message `"must be a valid number"` was wrong, because 1.9 *is* a number. The handler now
+  picks the message from `ife.getTargetType()`: `"must be a whole number"` for `Integer`, `"must be a valid number"`
+  otherwise.
+- `@DecimalMin("0")` is inclusive, so a price of `0` created a free order. I decided free orders are not allowed and
+  changed it to `@Positive`. The DB still allows `price >= 0`, which is fine: the API may be stricter than the
+  database. A sixth test checks the boundary (`"price": 0` → `400`).
+
 A third test sends `"price": "abc"`. With the new handler commented out it failed with
 `No value at JSON path "$.errors.price"`: the status was already `400`, only the field information was missing.
 
@@ -113,6 +122,10 @@ Now every bad request above returns `400` with, for example, `"errors": {"quanti
   quotes), got a `400` from the JSON parser, and only `$.errors.customerName` showed that validation never ran.
 - A silent wrong value is worse than an error. Nobody notices `1.9` becoming `1`.
 - A review comment is a hypothesis, not a fact. The reviewer was not sure, so I tested it myself with one curl.
+- An error message must be true for every input that reaches it. Check it against real examples (`1.9`, `"abc"`),
+  not only the one you had in mind.
+- Limits like `VARCHAR(255)` come from the database. Limits like "no free orders" are business rules, and need a
+  conscious decision plus a boundary test.
 
 **Concept:** Validate at the door, and keep the database as the last line of defense. The API should reject bad
 input early, with a clear `4xx` that says what to fix. Database constraints still protect the data if something

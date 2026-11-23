@@ -53,8 +53,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         Map<String, String> errors = new LinkedHashMap<>();
 
         if (ex.getCause() instanceof InvalidFormatException ife && !ife.getPath().isEmpty()) {
+            String message = (ife.getTargetType() == Integer.class) ? "must be a whole number" : "must be a valid number";
             String field = ife.getPath().get(0).getPropertyName();
-            errors.put(field, "must be a valid number");
+            errors.put(field, message);
         }
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, "Invalid request content");

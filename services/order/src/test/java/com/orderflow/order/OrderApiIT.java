@@ -185,6 +185,24 @@ public class OrderApiIT {
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
+    @Test
+    void postWithZeroPriceReturns400WithFieldError (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "Alice",
+                                "item" : "Book",
+                                "quantity" : 3,
+                                "price" : 0
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.price").exists())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
 
 
 }
