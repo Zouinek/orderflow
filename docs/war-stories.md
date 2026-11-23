@@ -25,6 +25,61 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #14 — Client mistakes returned 500 (2026-11-23)
+
+**Commit:** `fix(order): return 400 with field errors instead of 500 for invalid orders`
+
+**Symptom:** I sent `POST /orders` with bad input on purpose:
+
+| Request | Response |
+|---|---|
+| no `quantity` | `500 Internal Server Error` |
+| `"quantity": -5` | `500 Internal Server Error` |
+| no `customerName` | `500 Internal Server Error` |
+| `"price": "abc"` | `400 Bad Request`, but the body did not say which field was wrong |
+
+All four are client mistakes, so they should be `4xx`. A `500` tells the client "the server is broken", and a
+developer using my API had no way to know what to fix.
+
+**Root cause:** Nothing checked the request before it reached the code, and nothing handled the exceptions that
+came after. Each bad request crashed in a different place:
+- **No quantity:** Jackson set `quantity` to `null`. The mapper passed it to `setQuantity(int)`, and Java cannot
+  unbox `null` into an `int`, so it threw a `NullPointerException`.
+- **Negative quantity:** the Java code accepted `-5`. Only Postgres stopped it, with the `CHECK` constraint.
+- **No customerName:** same thing. Postgres stopped it with `NOT NULL`.
+- **price "abc":** Jackson could not parse it. Spring turns that into a `400` automatically, but with a generic body.
+
+Spring Boot answers any unhandled exception with `500`, even when the real cause is bad input.
+
+**Fix:** validate the request at the door, and return a clear error body:
+- Added `spring-boot-starter-validation` (no `<version>`; the Spring Boot parent manages it).
+- Put constraints on `CreateOrderRequest`: `@NotBlank` on the strings, `@NotNull @Positive` on `quantity`, and
+  `@NotNull @DecimalMin("0")` on `price`.
+- Added `@Valid` on the `@RequestBody` in `OrderController`, so invalid input is rejected before any of my code runs.
+- Enabled `spring.mvc.problemdetails.enabled=true`, so errors use the standard RFC 9457 format
+  (`application/problem+json`).
+- `ApiExceptionHandler` (`@RestControllerAdvice`) adds an `errors` map (field → message) to that ProblemDetail.
+
+Now every bad request above returns `400` with, for example, `"errors": {"quantity": "must not be null"}`.
+I verified it with curl and two integration tests: one missing field, and one with all fields invalid (4 errors).
+I removed `@Valid` once to watch a test fail: it crashed with the same `NullPointerException`, which was the right
+reason. Then I put it back, and the tests passed.
+
+**Also learned:**
+- `@NotBlank` already includes `@NotNull` and `@NotEmpty`. Putting all three gives three duplicate messages.
+- Number constraints like `@Positive` ignore `null`, so they need `@NotNull` too.
+- `Collectors.toMap` throws on a duplicate key unless you give it a merge function, like `(first, second) -> first`.
+- JUnit **Failure** = an assertion was wrong. **Error** = the test crashed with an exception.
+- MockMvc has no Tomcat. An unhandled exception goes straight into the test instead of becoming a `500`.
+- Don't check exact validation messages in tests. They depend on the locale, so use `.exists()`.
+- "Port 8080 already in use" was my Docker `app` container. Fix: `docker compose stop app`.
+- In PowerShell, `\"` inside curl JSON breaks the body and gives a misleading `400`. Pipe the JSON into
+  `curl.exe --data-binary "@-"` instead.
+
+**Concept:** Validate at the door, and keep the database as the last line of defense. The API should reject bad
+input early, with a clear `4xx` that says what to fix. Database constraints still protect the data if something
+gets past the API, but they should never be the thing that answers the client.
+
 ## #13 — POST /orders could overwrite any order (2026-11-17)
 
 **Commit:** `fix(order): prevent POST /orders from overwriting existing orders`

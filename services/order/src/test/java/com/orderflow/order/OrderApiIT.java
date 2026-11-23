@@ -16,9 +16,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @Testcontainers
 @SpringBootTest
@@ -93,6 +92,43 @@ public class OrderApiIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.customerName").value("Alice"));
 
+    }
+
+    @Test
+    void postWithoutQuantityReturns400WithFieldError (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : "Alice",
+                                "item" : "Book",
+                                "price" : 14.95
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.quantity").value("must not be null"))
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void postWithAllFieldsInvalidReturnsAllErrors (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "customerName" : " ",
+                                "quantity" : -3,
+                                "price" : -1
+                                 }
+                                """))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.customerName").exists())
+                .andExpect(jsonPath("$.errors.item").exists())
+                .andExpect(jsonPath("$.errors.quantity").exists())
+                .andExpect(jsonPath("$.errors.price").exists())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
 

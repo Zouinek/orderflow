@@ -2,6 +2,7 @@ package com.orderflow.order;
 
 import java.util.List;
 
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -43,7 +44,7 @@ public class OrderController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public OrderResponse create(@RequestBody CreateOrderRequest request) {
+    public OrderResponse create(@Valid @RequestBody CreateOrderRequest request) {
         Order order = mapper.toEntity(request);
         Order saved = repository.save(order);
 
