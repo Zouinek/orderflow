@@ -41,4 +41,12 @@ public class Order {
 
     public OrderStatus getStatus() { return status; }
 
+    public void cancel() {
+         if (status == OrderStatus.CANCELLED) {
+            throw new OrderNotCancellableException(id, status);
+         }
+        status = OrderStatus.CANCELLED;
+    }
+
+
 }

@@ -204,6 +204,52 @@ public class OrderApiIT {
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
+    @Test
+    void cancelReturns200WithCancelledStatus (@Autowired MockMvc mvc) throws Exception {
+        Integer id = createOrder(mvc);
 
+        mvc.perform(post("/orders/{id}/cancel", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
 
+    }
+
+    @Test
+    void cancelTwiceReturns409 (@Autowired MockMvc mvc) throws Exception {
+        Integer id = createOrder(mvc);
+
+        mvc.perform(post("/orders/{id}/cancel", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        mvc.perform(post("/orders/{id}/cancel", id))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").exists());
+
+    }
+
+    @Test
+    void cancelUnknownOrderReturns404 (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders/9999/cancel"))
+                .andExpect(status().isNotFound());
+
+    }
+
+    private Integer createOrder(MockMvc mvc) throws Exception {
+        MvcResult result = mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            {
+                            "customerName" : "Tila",
+                            "item" : "Book",
+                            "quantity" : 3,
+                            "price" : 14.95
+                            }
+                            """))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        return JsonPath.read(body, "$.id");
+    }
 }

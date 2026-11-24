@@ -1,6 +1,7 @@
 package com.orderflow.order;
 
 import java.util.List;
+import java.util.Optional;
 
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -58,5 +59,21 @@ public class OrderController {
         }
         repository.deleteById(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<OrderResponse> cancel(@PathVariable Long id) {
+        Optional<Order> found = repository.findById(id);
+
+        if(found.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Order order = found.get();
+        order.cancel();
+        repository.save(order);
+
+        return  ResponseEntity.ok(mapper.toResponse(order));
+
     }
 }
