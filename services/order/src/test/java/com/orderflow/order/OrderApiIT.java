@@ -50,7 +50,8 @@ public class OrderApiIT {
 
         mvc.perform(get("/orders/{id}", id))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.customerName").value("Tila"));
+                .andExpect(jsonPath("$.customerName").value("Tila"))
+                .andExpect(jsonPath("$.status").value("CREATED"));
     }
 
     @Test

@@ -1,10 +1,7 @@
 package com.orderflow.order;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -23,6 +20,9 @@ public class Order {
     private BigDecimal price;
     private Instant createdAt = Instant.now();
 
+    @Enumerated(EnumType.STRING)
+    private OrderStatus status = OrderStatus.CREATED;
+
     public Long getId() { return id; }
 
     public String getCustomerName() { return customerName; }
@@ -38,4 +38,7 @@ public class Order {
     public void setPrice(BigDecimal price) { this.price = price; }
 
     public Instant getCreatedAt() { return createdAt; }
+
+    public OrderStatus getStatus() { return status; }
+
 }
