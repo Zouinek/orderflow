@@ -10,6 +10,9 @@ import java.time.Instant;
 @Table(name = "orders")
 public class Order {
 
+    @Version
+    private Long version;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

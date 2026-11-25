@@ -7,12 +7,16 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.math.BigDecimal;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -251,5 +255,26 @@ public class OrderApiIT {
 
         String body = result.getResponse().getContentAsString();
         return JsonPath.read(body, "$.id");
+    }
+
+    @Test
+    void concurrentUpdateOfSameOrderIsRejected (@Autowired OrderRepository repository) throws Exception {
+        Order order = new Order();
+        order.setCustomerName("Anna");
+        order.setItem("Book");
+        order.setQuantity(1);
+        order.setPrice(new BigDecimal("14.95"));
+
+        Long id = repository.save(order).getId();
+
+        Order annCopy = repository.findById(id).orElseThrow();
+        Order benCopy = repository.findById(id).orElseThrow();
+
+        annCopy.cancel();
+        repository.save(annCopy);
+
+        benCopy.cancel();
+
+        assertThrows(ObjectOptimisticLockingFailureException.class, () -> repository.save(benCopy));
     }
 }

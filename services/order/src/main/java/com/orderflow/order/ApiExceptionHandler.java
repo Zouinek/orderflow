@@ -3,6 +3,7 @@ package com.orderflow.order;
 import org.springframework.http.*;
 
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -66,5 +67,10 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(OrderNotCancellableException.class)
     public ProblemDetail handleNotCancellable(OrderNotCancellableException ex) {
        return  ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ProblemDetail handleObjectOptimisticLockingFailure() {
+        return  ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,"the order was changed by someone else, reload and try again");
     }
 }
