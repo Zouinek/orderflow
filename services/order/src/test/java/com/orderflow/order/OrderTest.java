@@ -16,9 +16,17 @@ public class OrderTest {
     }
 
     @Test
-    void cancelledOrderCannotBeCancelledAgain() {
+    void cancellingTwiceKeepsOrderCancelled() {
         Order order = new Order();
         order.cancel();
+        order.cancel();
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+    }
+
+    @Test
+    void confirmedOrderCannotBeCancelled() {
+        Order order = new Order();
+        order.confirm();
         assertThrows(OrderNotCancellableException.class, () -> order.cancel());
     }
 }

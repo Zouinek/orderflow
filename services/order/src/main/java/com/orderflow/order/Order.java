@@ -45,11 +45,20 @@ public class Order {
     public OrderStatus getStatus() { return status; }
 
     public void cancel() {
-         if (status != OrderStatus.CREATED) {
+        if (status == OrderStatus.CANCELLED) {
+            return;
+        }
+        if (status != OrderStatus.CREATED) {
             throw new OrderNotCancellableException(id, status);
-         }
+        }
         status = OrderStatus.CANCELLED;
     }
 
+    public void confirm() {
+        if (status != OrderStatus.CREATED) {
+            throw new IllegalStateException("Order " + id +" cannot be confirmed in status " + status);
+        }
+        status = OrderStatus.CONFIRMED;
+    }
 
 }

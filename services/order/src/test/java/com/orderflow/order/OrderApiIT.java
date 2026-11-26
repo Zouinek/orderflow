@@ -219,7 +219,7 @@ public class OrderApiIT {
     }
 
     @Test
-    void cancelTwiceReturns409 (@Autowired MockMvc mvc) throws Exception {
+    void cancelTwiceReturns200 (@Autowired MockMvc mvc) throws Exception {
         Integer id = createOrder(mvc);
 
         mvc.perform(post("/orders/{id}/cancel", id))
@@ -227,8 +227,8 @@ public class OrderApiIT {
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         mvc.perform(post("/orders/{id}/cancel", id))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail").exists());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
 
     }
 

@@ -33,6 +33,9 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 - `feat(order): reject concurrent updates to the same order with 409`
 - `fix(order): only allow cancelling orders that are still CREATED` (after the PR review)
 - `refactor(order): build the cancel response from the saved order` (after the PR review)
+- `fix(order): make repeat cancels return 200 instead of 409` (after the PR review)
+- `fix(order): remove DELETE /orders/{id}, orders are cancelled, never deleted` (after the PR review)
+
 
 
 **Symptom:** an order had no lifecycle, so a client could not cancel it. The first version of `cancel()` also had a
