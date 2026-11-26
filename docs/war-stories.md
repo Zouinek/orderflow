@@ -36,8 +36,6 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 - `fix(order): make repeat cancels return 200 instead of 409` (after the PR review)
 - `fix(order): remove DELETE /orders/{id}, orders are cancelled, never deleted` (after the PR review)
 
-
-
 **Symptom:** an order had no lifecycle, so a client could not cancel it. The first version of `cancel()` also had a
 hidden problem. Two requests that read the same order at the same time would both pass the check and both save, and the
 last save would silently overwrite the first. Today that means two cancels, both `200`. Once Payment confirms orders
@@ -50,13 +48,19 @@ changed since it was read. It just writes.
 
 **Fix:**
 1. `V3` migration + `OrderStatus` enum (`CREATED`, `CONFIRMED`, `CANCELLED`), stored as `STRING`, with a `CHECK` constraint.
-2. `POST /orders/{id}/cancel`: the rule lives in `Order.cancel()` (no setter for `status`). A repeat cancel returns `409`
-   with a clear message, and an unknown id returns `404`.
+2. `POST /orders/{id}/cancel`: the rule lives in `Order.cancel()` (no setter for `status`). Only a `CREATED` order can
+   be cancelled. A repeat cancel returns `200` (idempotent), `CONFIRMED` returns `409`, and an unknown id returns `404`.
 3. `V4` migration + `@Version` on `Order`. Hibernate now writes `UPDATE ... WHERE id = ? AND version = ?`. If someone
    else saved first, the version no longer matches, 0 rows are updated, and the save throws
    `ObjectOptimisticLockingFailureException`, which the handler turns into `409`.
+4. Removed `DELETE /orders/{id}`. It could hard-delete a `CONFIRMED` order and bypass the cancel rule.
 
-Verified with curl (cancel → `200`, again → `409`, unknown → `404`), a unit test for the rule (`OrderTest`), and an IT
+**What the PR review changed:** my first version allowed cancelling a `CONFIRMED` order and returned `409` for a repeat
+cancel. Both were wrong. A `CONFIRMED` order has a payment attached, and nothing can release or refund it yet, so it
+stays blocked until Phase 2. A repeat cancel is usually a client retrying after a lost response: the order *is*
+cancelled, so the honest answer is `200`, not "your cancel failed".
+
+Verified with curl (cancel → `200`, unknown → `404`), a unit test for the rule (`OrderTest`), and an IT
 that loads two copies of the same order, saves the first, and expects the second save to fail. I watched that IT fail
 without `@Version` ("nothing was thrown") before turning it green.
 
@@ -68,6 +72,9 @@ without `@Version` ("nothing was thrown") before turning it green.
 - Never edit an applied migration (checksum mismatch, see #12). A change goes in the next version.
 - A failing unit test stops the build before Failsafe runs the ITs, so "ITs passed" can mean "ITs never ran".
 - In `assertThrows`, I first put the wrong exception. The test failed with the *real* exception, which showed that `@Version` worked.
+- An operation that can be retried should be **idempotent**: doing it twice gives the same result as once. Often the
+  state alone is enough, without an idempotency key: "already `CANCELLED`" means "done", so return `200`.
+- Don't keep an endpoint "for later" when it bypasses a rule. Orders are records: they are cancelled, never deleted.
 
 **Concept:** optimistic concurrency control. Don't lock the row while reading. Instead, check at write time that nobody
 changed it since you read it (compare-and-set on a version number). A check that only lives in memory can't see other
