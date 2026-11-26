@@ -7,12 +7,16 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.math.BigDecimal;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -50,7 +54,8 @@ public class OrderApiIT {
 
         mvc.perform(get("/orders/{id}", id))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.customerName").value("Tila"));
+                .andExpect(jsonPath("$.customerName").value("Tila"))
+                .andExpect(jsonPath("$.status").value("CREATED"));
     }
 
     @Test
@@ -203,6 +208,73 @@ public class OrderApiIT {
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
+    @Test
+    void cancelReturns200WithCancelledStatus (@Autowired MockMvc mvc) throws Exception {
+        Integer id = createOrder(mvc);
 
+        mvc.perform(post("/orders/{id}/cancel", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
 
+    }
+
+    @Test
+    void cancelTwiceReturns200 (@Autowired MockMvc mvc) throws Exception {
+        Integer id = createOrder(mvc);
+
+        mvc.perform(post("/orders/{id}/cancel", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        mvc.perform(post("/orders/{id}/cancel", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+    }
+
+    @Test
+    void cancelUnknownOrderReturns404 (@Autowired MockMvc mvc) throws Exception {
+        mvc.perform(post("/orders/9999/cancel"))
+                .andExpect(status().isNotFound());
+
+    }
+
+    private Integer createOrder(MockMvc mvc) throws Exception {
+        MvcResult result = mvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            {
+                            "customerName" : "Tila",
+                            "item" : "Book",
+                            "quantity" : 3,
+                            "price" : 14.95
+                            }
+                            """))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        return JsonPath.read(body, "$.id");
+    }
+
+    @Test
+    void concurrentUpdateOfSameOrderIsRejected (@Autowired OrderRepository repository) throws Exception {
+        Order order = new Order();
+        order.setCustomerName("Anna");
+        order.setItem("Book");
+        order.setQuantity(1);
+        order.setPrice(new BigDecimal("14.95"));
+
+        Long id = repository.save(order).getId();
+
+        Order annCopy = repository.findById(id).orElseThrow();
+        Order benCopy = repository.findById(id).orElseThrow();
+
+        annCopy.cancel();
+        repository.save(annCopy);
+
+        benCopy.cancel();
+
+        assertThrows(ObjectOptimisticLockingFailureException.class, () -> repository.save(benCopy));
+    }
 }

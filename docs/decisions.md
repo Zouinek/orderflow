@@ -21,6 +21,20 @@ Newest on top.
 
 ---
 
+## D7: optimistic locking over no lock or pessimistic locking (2026-11-26)
+
+**Context:** with order statuses (war story #15), two requests can change the same order at the same time. Without protection, the last save silently overwrites the first one, and the order ends up in the wrong state.
+
+**Decision:** optimistic locking with JPA `@Version`. Every update checks that the version is still the one that was read (`UPDATE ... WHERE version = ?`). If someone else saved first, the update is rejected and the client gets `409`.
+
+**Rejected:**
+- No lock: the second save silently overwrites the first one (lost update). Nobody gets an error.
+- Pessimistic lock (`SELECT ... FOR UPDATE`): other requests wait until the first one finishes. Every request pays that cost, but two people changing the same order at the same moment is rare.
+
+**Consequences:**
+- It costs one more column (`version`, migration `V4`). A client can sometimes get `409` and must reload and retry.
+- Open question for Phase 2: should we take the money when the order is placed, or only authorize it then and capture it at delivery? This decides what cancelling a `CONFIRMED` order means: a refund, or only releasing the authorization.
+
 ## D6: UNKNOWN payment status with reconciliation over treating a timeout as failed (2026-10-07)
 
 **Context:** the Payment service calls an external payment provider. When that call times out, I don't know what happened: maybe the provider never got the request, maybe it charged the customer and only the answer got lost.

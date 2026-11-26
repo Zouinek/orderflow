@@ -1,0 +1,3 @@
+ALTER TABLE orders
+    ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'CREATED',
+    ADD CONSTRAINT orders_status_check CHECK (status IN ('CREATED', 'CANCELLED', 'CONFIRMED'));

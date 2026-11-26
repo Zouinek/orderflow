@@ -30,7 +30,8 @@ public class OrderMapper {
                 order.getQuantity(),
                 order.getPrice(),
                 total,
-                order.getCreatedAt()
+                order.getCreatedAt(),
+                order.getStatus()
         );
     }
 }

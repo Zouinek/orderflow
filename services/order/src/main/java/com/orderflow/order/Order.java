@@ -1,10 +1,7 @@
 package com.orderflow.order;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -12,6 +9,9 @@ import java.time.Instant;
 @Entity
 @Table(name = "orders")
 public class Order {
+
+    @Version
+    private Long version;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -22,6 +22,9 @@ public class Order {
     private int quantity;
     private BigDecimal price;
     private Instant createdAt = Instant.now();
+
+    @Enumerated(EnumType.STRING)
+    private OrderStatus status = OrderStatus.CREATED;
 
     public Long getId() { return id; }
 
@@ -38,4 +41,24 @@ public class Order {
     public void setPrice(BigDecimal price) { this.price = price; }
 
     public Instant getCreatedAt() { return createdAt; }
+
+    public OrderStatus getStatus() { return status; }
+
+    public void cancel() {
+        if (status == OrderStatus.CANCELLED) {
+            return;
+        }
+        if (status != OrderStatus.CREATED) {
+            throw new OrderNotCancellableException(id, status);
+        }
+        status = OrderStatus.CANCELLED;
+    }
+
+    public void confirm() {
+        if (status != OrderStatus.CREATED) {
+            throw new IllegalStateException("Order " + id +" cannot be confirmed in status " + status);
+        }
+        status = OrderStatus.CONFIRMED;
+    }
+
 }

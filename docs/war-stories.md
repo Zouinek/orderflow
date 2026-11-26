@@ -25,6 +25,61 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #15 — Two cancels, both 200 (2026-11-25)
+
+**Commits:**
+- `feat(order): track order status, starting as CREATED`
+- `feat(order): let clients cancel orders, rejecting repeat cancels with 409`
+- `feat(order): reject concurrent updates to the same order with 409`
+- `fix(order): only allow cancelling orders that are still CREATED` (after the PR review)
+- `refactor(order): build the cancel response from the saved order` (after the PR review)
+- `fix(order): make repeat cancels return 200 instead of 409` (after the PR review)
+- `fix(order): remove DELETE /orders/{id}, orders are cancelled, never deleted` (after the PR review)
+
+**Symptom:** an order had no lifecycle, so a client could not cancel it. The first version of `cancel()` also had a
+hidden problem. Two requests that read the same order at the same time would both pass the check and both save, and the
+last save would silently overwrite the first. Today that means two cancels, both `200`. Once Payment confirms orders
+(Phase 2), it gets worse: a customer cancels, then the payment flow saves its old copy as `CONFIRMED`. The order is
+shipped after being cancelled.
+
+**Root cause:** the rule in `Order.cancel()` checks the status **in memory**. Each request loads its own copy of the row,
+and neither copy knows that the other one exists. Without a version, the `UPDATE` does not check whether the row
+changed since it was read. It just writes.
+
+**Fix:**
+1. `V3` migration + `OrderStatus` enum (`CREATED`, `CONFIRMED`, `CANCELLED`), stored as `STRING`, with a `CHECK` constraint.
+2. `POST /orders/{id}/cancel`: the rule lives in `Order.cancel()` (no setter for `status`). Only a `CREATED` order can
+   be cancelled. A repeat cancel returns `200` (idempotent), `CONFIRMED` returns `409`, and an unknown id returns `404`.
+3. `V4` migration + `@Version` on `Order`. Hibernate now writes `UPDATE ... WHERE id = ? AND version = ?`. If someone
+   else saved first, the version no longer matches, 0 rows are updated, and the save throws
+   `ObjectOptimisticLockingFailureException`, which the handler turns into `409`.
+4. Removed `DELETE /orders/{id}`. It could hard-delete a `CONFIRMED` order and bypass the cancel rule.
+
+**What the PR review changed:** my first version allowed cancelling a `CONFIRMED` order and returned `409` for a repeat
+cancel. Both were wrong. A `CONFIRMED` order has a payment attached, and nothing can release or refund it yet, so it
+stays blocked until Phase 2. A repeat cancel is usually a client retrying after a lost response: the order *is*
+cancelled, so the honest answer is `200`, not "your cancel failed".
+
+Verified with curl (cancel → `200`, unknown → `404`), a unit test for the rule (`OrderTest`), and an IT
+that loads two copies of the same order, saves the first, and expects the second save to fail. I watched that IT fail
+without `@Version` ("nothing was thrown") before turning it green.
+
+**Also learned:**
+- `git branch -m feat/order-status` **renames the current branch**, and I was on `main`. `git checkout -b` creates a new one.
+- `EnumType.ORDINAL` stores 0/1/2. Reordering the enum silently changes the meaning of every row, so use `STRING`.
+- A DB `DEFAULT` is not enough: Hibernate inserts an explicit `NULL` unless the Java field is initialized.
+- `ALREADY_REPORTED` is `208`, a **success** code. "You can't do that now" is `409 CONFLICT`.
+- Never edit an applied migration (checksum mismatch, see #12). A change goes in the next version.
+- A failing unit test stops the build before Failsafe runs the ITs, so "ITs passed" can mean "ITs never ran".
+- In `assertThrows`, I first put the wrong exception. The test failed with the *real* exception, which showed that `@Version` worked.
+- An operation that can be retried should be **idempotent**: doing it twice gives the same result as once. Often the
+  state alone is enough, without an idempotency key: "already `CANCELLED`" means "done", so return `200`.
+- Don't keep an endpoint "for later" when it bypasses a rule. Orders are records: they are cancelled, never deleted.
+
+**Concept:** optimistic concurrency control. Don't lock the row while reading. Instead, check at write time that nobody
+changed it since you read it (compare-and-set on a version number). A check that only lives in memory can't see other
+requests. The write itself has to carry the condition (DDIA ch. 7, preventing lost updates).
+
 ## #14 — Client mistakes returned 500 (2026-11-23)
 
 **Commits:**
