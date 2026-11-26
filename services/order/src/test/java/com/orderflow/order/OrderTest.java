@@ -29,4 +29,12 @@ public class OrderTest {
         order.confirm();
         assertThrows(OrderNotCancellableException.class, () -> order.cancel());
     }
+
+    @Test
+    void cancelledOrderCannotBeConfirmed() {
+        Order order = new Order();
+        order.cancel();
+        assertThrows(IllegalStateException.class, () -> order.confirm());
+    }
+
 }
