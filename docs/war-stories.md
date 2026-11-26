@@ -25,6 +25,47 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
+## #16 — The volume that stayed empty (2026-11-26)
+
+**Commit:** `feat(infra): run Kafka locally in KRaft mode with persistent storage`
+
+**Symptom:** I added Kafka to `docker-compose.yml` with a named volume. My first config had the listeners wrong, and once
+it started and showed `(healthy)`, everything looked done. But `ls /var/lib/kafka/data` inside the container was
+**empty**. Kafka was writing to `/tmp/kafka-logs` inside the container, so every `--force-recreate` would have wiped all
+topics and messages.
+
+**Root cause:** two separate mistakes, both invisible as long as everything ran on one machine.
+1. **The volume:** mounting a volume only creates a folder. It doesn't tell the program to use it. Once you set any
+   `KAFKA_*` env var, the `apache/kafka` image drops its defaults, and `log.dirs` falls back to `/tmp/kafka-logs`.
+2. **The listeners:** my first try advertised `localhost` for the internal listener and `0.0.0.0` for the external
+   one. `ADVERTISED_LISTENERS` is the address Kafka *tells clients to connect to*. `localhost` inside the app container
+   means the app container itself (same lesson as #1), and `0.0.0.0` can be listened on, but not connected to.
+
+**Fix:**
+- `KAFKA_LOG_DIRS: /var/lib/kafka/data`, so the data lands in the volume.
+- Three named listeners: `INTERNAL://kafka:29092` (containers), `EXTERNAL://localhost:9092` (my laptop),
+  `CONTROLLER` on 9093 (never advertised, clients don't talk to it).
+- Only `9092` is published. `29092` is container-to-container, and `9093` is internal to Kafka.
+- Published ports are bound to `127.0.0.1` (Kafka and Postgres). Kafka's listener has no authentication, so on a shared network anyone could have read or written every topic (found in the PR review).
+- `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`, so a typo in a topic name fails loudly instead of creating a new topic.
+- A healthcheck, and `app` waits for `service_healthy`.
+
+Verified: created a `persist-check` topic, ran `docker compose up -d --force-recreate kafka`, and the topic was still
+listed afterwards.
+
+**Also learned:**
+- `LISTENERS` = where Kafka listens (`0.0.0.0` is fine). `ADVERTISED_LISTENERS` = what it tells clients (must be a
+  reachable name).
+- Docker only reads `docker-compose.yml` when it **creates** the container. After a change, `--force-recreate`, or
+  you're testing the old config. I did that twice.
+- The `Connection to node -1 could not be established` warnings right after a restart are Kafka still booting. The
+  client retries. That's what the healthcheck is for.
+- Spaces in comma lists: some Kafka settings trim them, some don't. Write `a,b,c`.
+
+**Concept:** "it runs" is not "it works". A healthy container proves the process is up, not that the data is durable
+or that other containers can reach it. Test the property you need (data survives a restart), not the symptom you see
+(green status).
+
 ## #15 — Two cancels, both 200 (2026-11-25)
 
 **Commits:**

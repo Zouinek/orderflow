@@ -21,6 +21,22 @@ Newest on top.
 
 ---
 
+## D8: single-node Kafka in KRaft mode for local development (2026-11-26)
+
+**Context:** Phase 1 starts the event-driven part. Order will publish `order-created`, and the other services will consume events (D4). For that I need a Kafka broker that runs locally next to Postgres, starts with one command, and keeps its data across restarts.
+
+**Decision:** one `apache/kafka` container in `docker-compose.yml`, in KRaft mode (the same process is broker and controller). Data lives in a named volume (`KAFKA_LOG_DIRS`). Topics are not auto-created; they will be created on purpose by the services. Containers connect to `kafka:29092`, my laptop to `localhost:9092`.
+
+**Rejected:**
+- ZooKeeper mode: an extra container to run, and it is removed in Kafka 4. KRaft is the only mode going forward.
+- A managed service (AWS MSK, Confluent Cloud) for development: it costs money, needs internet, and hides the configuration I want to understand.
+- Auto-created topics: a typo silently creates a new topic, and events disappear into it.
+
+**Consequences:**
+- One broker means no replication: if the container's disk is lost, the events are gone, and there is no failover. Fine for a laptop, never for production.
+- Production would need at least 3 brokers, replication factor 3 and `min.insync.replicas=2`, so one broker can fail without losing acknowledged writes.
+- On Kubernetes I will write the StatefulSet by hand once, to understand it. In a real company, an operator (Strimzi) or a managed service would run Kafka instead.
+
 ## D7: optimistic locking over no lock or pessimistic locking (2026-11-26)
 
 **Context:** with order statuses (war story #15), two requests can change the same order at the same time. Without protection, the last save silently overwrites the first one, and the order ends up in the wrong state.
