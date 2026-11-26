@@ -71,9 +71,9 @@ public class OrderController {
 
         Order order = found.get();
         order.cancel();
-        repository.save(order);
+        Order saved = repository.save(order);
 
-        return  ResponseEntity.ok(mapper.toResponse(order));
+        return  ResponseEntity.ok(mapper.toResponse(saved));
 
     }
 }
