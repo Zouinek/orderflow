@@ -46,6 +46,7 @@ topics and messages.
 - Three named listeners: `INTERNAL://kafka:29092` (containers), `EXTERNAL://localhost:9092` (my laptop),
   `CONTROLLER` on 9093 (never advertised, clients don't talk to it).
 - Only `9092` is published. `29092` is container-to-container, and `9093` is internal to Kafka.
+- Published ports are bound to `127.0.0.1` (Kafka and Postgres). Kafka's listener has no authentication, so on a shared network anyone could have read or written every topic (found in the PR review).
 - `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`, so a typo in a topic name fails loudly instead of creating a new topic.
 - A healthcheck, and `app` waits for `service_healthy`.
 
