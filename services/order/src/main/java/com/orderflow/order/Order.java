@@ -45,7 +45,7 @@ public class Order {
     public OrderStatus getStatus() { return status; }
 
     public void cancel() {
-         if (status == OrderStatus.CANCELLED) {
+         if (status != OrderStatus.CREATED) {
             throw new OrderNotCancellableException(id, status);
          }
         status = OrderStatus.CANCELLED;

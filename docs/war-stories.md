@@ -25,29 +25,6 @@ Newest on top. Every `feat`/`fix` commit adds or updates an entry here (enforced
 
 ---
 
-
-## #15 — two cancels, both 200  (25.11.2026)
-
-**Commit:** 
-- `feat(order): track order status, starting as CREATED`
-- `feat(order): let clients cancel orders, rejecting repeat cancels with 409`
-- `feat(order): reject concurrent updates to the same order with 409`
-
-**Symptom:** a client cant cancel his order, and  the data it might be corrupted  lets someone has canceled his order and after 
-the server  have overwrite it with last update wich is confirm after he run throw the payment process. Now an order is confirmed and
-shipped after being canceled
-
-**Root cause:** there is no version for exact same data a two different process can change data without know  if it s allowed to do that
-
-**Fix:** i ve added a @Version to the data being changed if any future process gonna has change  the status the there version muss be
-equals or  it will not be applied cuz the version changes 
-
-**Also learned:** side lessons, gotchas, commands worth remembering.
-
-**Concept:** the general idea behind it (DDIA / distributed systems), in one or two sentences.
-
----
-
 ## #15 — Two cancels, both 200 (2026-11-25)
 
 **Commits:**
